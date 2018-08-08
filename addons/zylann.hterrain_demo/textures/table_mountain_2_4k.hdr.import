@@ -2,12 +2,12 @@
 
 importer="texture"
 type="StreamTexture"
-path="res://.import/icon.png-487276ed1e3a0c39cad0279d744ee560.stex"
+path="res://.import/table_mountain_2_4k.hdr-90b6d1adf161addfc19478d3da83fb70.stex"
 
 [deps]
 
-source_file="res://icon.png"
-dest_files=[ "res://.import/icon.png-487276ed1e3a0c39cad0279d744ee560.stex" ]
+source_file="res://addons/zylann.hterrain_demo/textures/table_mountain_2_4k.hdr"
+dest_files=[ "res://.import/table_mountain_2_4k.hdr-90b6d1adf161addfc19478d3da83fb70.stex" ]
 
 [params]
 

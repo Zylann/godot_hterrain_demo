@@ -1,0 +1,21 @@
+[gd_resource type="Resource" load_steps=3 format=2]
+
+[ext_resource path="res://addons/zylann.hterrain/tools/icons/icon_heightmap_data.svg" type="Texture" id=1]
+[ext_resource path="res://addons/zylann.hterrain/hterrain_data.gd" type="Script" id=2]
+
+[resource]
+
+script = ExtResource( 2 )
+__meta__ = {
+"_editor_icon": ExtResource( 1 )
+}
+_maps_data = [ [ {
+"id": 0
+} ], [ {
+"id": 0
+} ], [ {
+"id": 0
+} ], [ {
+"id": 0
+} ], [  ] ]
+
