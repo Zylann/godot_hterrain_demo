@@ -27,6 +27,7 @@ _global_script_class_icons={
 [application]
 
 config/name="HTerrain demo"
+run/main_scene="res://addons/zylann.hterrain_demo/demo.tscn"
 config/icon="res://icon.png"
 
 [editor_plugins]
