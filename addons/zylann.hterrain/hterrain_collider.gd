@@ -1,29 +1,31 @@
 tool
 
+const Logger = preload("./util/logger.gd")
+
 var _shape_rid = RID()
 var _body_rid = RID()
 var _terrain_transform = Transform()
 var _terrain_data = null
+var _logger = Logger.get_for(self)
 
 
-func _init(attached_node):
-	print("HTerrainCollider: creating body")
+func _init(attached_node: Node, initial_layer: int, initial_mask: int):
+	_logger.debug("HTerrainCollider: creating body")
 	assert(attached_node != null)
 	_shape_rid = PhysicsServer.shape_create(PhysicsServer.SHAPE_HEIGHTMAP)
 	_body_rid = PhysicsServer.body_create(PhysicsServer.BODY_MODE_STATIC)
 
-	# TODO Let user configure layer and mask
-	PhysicsServer.body_set_collision_layer(_body_rid, 1)
-	PhysicsServer.body_set_collision_mask(_body_rid, 1)
+	PhysicsServer.body_set_collision_layer(_body_rid, initial_layer)
+	PhysicsServer.body_set_collision_mask(_body_rid, initial_mask)
 
 	# TODO This is an attempt to workaround https://github.com/godotengine/godot/issues/24390
 	PhysicsServer.body_set_ray_pickable(_body_rid, false)
 
 	# TODO This is a workaround to https://github.com/godotengine/godot/issues/25304
 	PhysicsServer.shape_set_data(_shape_rid, {
-		"width": 1,
-		"depth": 1,
-		"heights": PoolRealArray([0]),
+		"width": 2,
+		"depth": 2,
+		"heights": PoolRealArray([0, 0, 0, 0]),
 		"min_height": -1,
 		"max_height": 1
 	})
@@ -34,9 +36,17 @@ func _init(attached_node):
 	PhysicsServer.body_attach_object_instance_id(_body_rid, attached_node.get_instance_id())
 
 
+func set_collision_layer(layer: int):
+	PhysicsServer.body_set_collision_layer(_body_rid, layer)
+
+
+func set_collision_mask(mask: int):
+	PhysicsServer.body_set_collision_mask(_body_rid, mask)
+
+
 func _notification(what):
 	if what == NOTIFICATION_PREDELETE:
-		print("Destroy HTerrainCollider")
+		_logger.debug("Destroy HTerrainCollider")
 		PhysicsServer.free_rid(_body_rid)
 		# The shape needs to be freed after the body, otherwise the engine crashes
 		PhysicsServer.free_rid(_shape_rid)
@@ -56,7 +66,7 @@ func set_world(world):
 func create_from_terrain_data(terrain_data):
 	assert(terrain_data != null)
 	assert(not terrain_data.is_locked())
-	print("HTerrainCollider: setting up heightmap")
+	_logger.debug("HTerrainCollider: setting up heightmap")
 
 	_terrain_data = terrain_data
 
@@ -81,7 +91,7 @@ func create_from_terrain_data(terrain_data):
 
 func _update_transform(aabb=null):
 	if _terrain_data == null:
-		print("HTerrainCollider: terrain data not set yet")
+		_logger.debug("HTerrainCollider: terrain data not set yet")
 		return
 
 	if aabb == null:
@@ -95,13 +105,13 @@ func _update_transform(aabb=null):
 
 	var trans
 	var v = Engine.get_version_info()
-	if v.major == 3 and v.minor <= 1 and v.patch <= 1:
+	if v.major == 3 and v.minor <= 1:
 		# Bullet centers the shape to its overall AABB so we need to move it to match the visuals
 		trans = Transform(Basis(), 0.5 * Vector3(width, height, depth) + Vector3(0, aabb.position.y, 0))
 	else:
 		# In 3.2, vertical centering changed.
 		# https://github.com/godotengine/godot/pull/28326
-		trans = Transform(Basis(), 0.5 * Vector3(width, 0, depth))
+		trans = Transform(Basis(), 0.5 * Vector3(width - 1, 0, depth - 1))
 	
 	# And then apply the terrain transform
 	trans = _terrain_transform * trans

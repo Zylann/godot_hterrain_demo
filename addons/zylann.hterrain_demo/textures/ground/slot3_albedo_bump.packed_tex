@@ -1,0 +1,8 @@
+{
+	"contains_albedo": true,
+	"resolution": 1024,
+	"src": {
+		"a": "res://addons/zylann.hterrain_demo/textures/ground/src/sand/sand_depth.png",
+		"rgb": "res://addons/zylann.hterrain_demo/textures/ground/src/sand/sand_albedo.png"
+	}
+}

@@ -1,0 +1,8 @@
+{
+	"contains_albedo": true,
+	"resolution": 1024,
+	"src": {
+		"a": "res://addons/zylann.hterrain_demo/textures/ground/src/leaves/leaves_depth.png",
+		"rgb": "res://addons/zylann.hterrain_demo/textures/ground/src/leaves/leaves_albedo.png"
+	}
+}

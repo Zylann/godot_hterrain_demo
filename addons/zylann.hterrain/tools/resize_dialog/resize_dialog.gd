@@ -2,6 +2,8 @@ tool
 extends WindowDialog
 
 const Util = preload("../../util/util.gd")
+const Logger = preload("../../util/logger.gd")
+const HTerrainData = preload("../../hterrain_data.gd")
 
 const ANCHOR_TOP_LEFT = 0
 const ANCHOR_TOP = 1
@@ -40,15 +42,17 @@ const _anchor_icon_names = [
 
 signal permanent_change_performed(message)
 
-onready var _resolution_dropdown = get_node("VBoxContainer/GridContainer/ResolutionDropdown")
-onready var _stretch_checkbox = get_node("VBoxContainer/GridContainer/StretchCheckBox")
-onready var _anchor_control = get_node("VBoxContainer/GridContainer/HBoxContainer/AnchorControl")
+onready var _resolution_dropdown = $VBoxContainer/GridContainer/ResolutionDropdown
+onready var _stretch_checkbox = $VBoxContainer/GridContainer/StretchCheckBox
+onready var _anchor_control = $VBoxContainer/GridContainer/HBoxContainer/AnchorControl
+
+const _resolutions = HTerrainData.SUPPORTED_RESOLUTIONS
 
 var _anchor_buttons = []
 var _anchor_buttons_grid = {}
 var _anchor_button_group = null
 var _selected_anchor = ANCHOR_TOP_LEFT
-var _resolutions = [513, 1025, 2049, 4097]
+var _logger = Logger.get_for(self)
 
 var _terrain = null
 
@@ -150,14 +154,13 @@ func _on_CancelButton_pressed():
 
 
 func _apply(p_resolution, p_stretch, p_anchor):
-	
 	if _terrain == null:
-		printerr("Cannot apply resize, terrain is not set")
+		_logger.error("Cannot apply resize, terrain is not set")
 		return
 	
 	var data = _terrain.get_data()
 	if data == null:
-		printerr("Cannot apply resize, terrain has no data")
+		_logger.error("Cannot apply resize, terrain has no data")
 		return
 	
 	data.resize(p_resolution, p_stretch, p_anchor)

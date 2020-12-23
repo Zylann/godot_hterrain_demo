@@ -1,35 +1,93 @@
 tool
 extends Spatial
 
-const QuadTreeLod = preload("util/quad_tree_lod.gd")
-const Mesher = preload("hterrain_mesher.gd")
-const Grid = preload("util/grid.gd")
-const HTerrainData = preload("hterrain_data.gd")
-const HTerrainChunk = preload("hterrain_chunk.gd")
-const HTerrainChunkDebug = preload("hterrain_chunk_debug.gd")
-const Util = preload("util/util.gd")
-const HTerrainCollider = preload("hterrain_collider.gd")
+const QuadTreeLod = preload("./util/quad_tree_lod.gd")
+const Mesher = preload("./hterrain_mesher.gd")
+const Grid = preload("./util/grid.gd")
+const HTerrainData = preload("./hterrain_data.gd")
+const HTerrainChunk = preload("./hterrain_chunk.gd")
+const HTerrainChunkDebug = preload("./hterrain_chunk_debug.gd")
+const Util = preload("./util/util.gd")
+const HTerrainCollider = preload("./hterrain_collider.gd")
+const HTerrainTextureSet = preload("./hterrain_texture_set.gd")
+const Logger = preload("./util/logger.gd")
 
-const CLASSIC4_SHADER_PATH = "res://addons/zylann.hterrain/shaders/simple4.shader"
-const CLASSIC4_LITE_SHADER_PATH = "res://addons/zylann.hterrain/shaders/simple4_lite.shader"
+const SHADER_CLASSIC4 = "Classic4"
+const SHADER_CLASSIC4_LITE = "Classic4Lite"
+const SHADER_LOW_POLY = "LowPoly"
+const SHADER_ARRAY = "Array"
+const SHADER_MULTISPLAT16 = "MultiSplat16"
+const SHADER_MULTISPLAT16_LITE = "MultiSplat16Lite"
+const SHADER_CUSTOM = "Custom"
+
+const MIN_MAP_SCALE = 0.01
+
+const _SHADER_TYPE_HINT_STRING = str(
+	"Classic4", ",",
+	"Classic4Lite", ",",
+	"LowPoly", ",",
+	"Array", ",",
+	"MultiSplat16", ",",
+	"MultiSplat16Lite", ",",
+	"Custom"
+)
+# TODO Had to downgrade this to support Godot 3.1.
+# Referring to other constants with this syntax isn't working...
+#const _SHADER_TYPE_HINT_STRING = str(
+#	SHADER_CLASSIC4, ",",
+#	SHADER_CLASSIC4_LITE, ",",
+#	SHADER_LOW_POLY, ",",
+#	SHADER_ARRAY, ",",
+#	SHADER_CUSTOM
+#)
+
+const _builtin_shaders = {
+	SHADER_CLASSIC4: {
+		path = "res://addons/zylann.hterrain/shaders/simple4.shader",
+		global_path = "res://addons/zylann.hterrain/shaders/simple4_global.shader"
+	},
+	SHADER_CLASSIC4_LITE: {
+		path = "res://addons/zylann.hterrain/shaders/simple4_lite.shader",
+		global_path = "res://addons/zylann.hterrain/shaders/simple4_global.shader"
+	},
+	SHADER_LOW_POLY: {
+		path = "res://addons/zylann.hterrain/shaders/low_poly.shader",
+		global_path = "" # Not supported
+	},
+	SHADER_ARRAY: {
+		path = "res://addons/zylann.hterrain/shaders/array.shader",
+		global_path = "res://addons/zylann.hterrain/shaders/array_global.shader"
+	},
+	SHADER_MULTISPLAT16: {
+		path = "res://addons/zylann.hterrain/shaders/multisplat16.shader",
+		global_path = "res://addons/zylann.hterrain/shaders/multisplat16_global.shader"
+	},
+	SHADER_MULTISPLAT16_LITE: {
+		path = "res://addons/zylann.hterrain/shaders/multisplat16_lite.shader",
+		global_path = "res://addons/zylann.hterrain/shaders/multisplat16_global.shader"
+	}
+}
+
 const _NORMAL_BAKER_PATH = "res://addons/zylann.hterrain/tools/normalmap_baker.gd"
-
-const SHADER_PARAM_HEIGHT_TEXTURE = "u_terrain_heightmap"
-const SHADER_PARAM_NORMAL_TEXTURE = "u_terrain_normalmap"
-const SHADER_PARAM_COLOR_TEXTURE = "u_terrain_colormap"
-const SHADER_PARAM_SPLAT_TEXTURE = "u_terrain_splatmap"
+const _LOOKDEV_SHADER_PATH = "res://addons/zylann.hterrain/shaders/lookdev.shader"
 
 const SHADER_PARAM_INVERSE_TRANSFORM = "u_terrain_inverse_transform"
 const SHADER_PARAM_NORMAL_BASIS = "u_terrain_normal_basis"
 
 const SHADER_PARAM_GROUND_PREFIX = "u_ground_" # + name + _0, _1, _2, _3...
 
-# Those parameters are filtered out in the inspector because they are not supposed to be set through it
+# Those parameters are filtered out in the inspector,
+# because they are not supposed to be set through it
 const _api_shader_params = {
 	"u_terrain_heightmap": true,
 	"u_terrain_normalmap": true,
 	"u_terrain_colormap": true,
 	"u_terrain_splatmap": true,
+	"u_terrain_splatmap_1": true,
+	"u_terrain_splatmap_2": true,
+	"u_terrain_splatmap_3": true,
+	"u_terrain_splat_index_map": true,
+	"u_terrain_splat_weight_map": true,
 	"u_terrain_globalmap": true,
 
 	"u_terrain_inverse_transform": true,
@@ -43,70 +101,103 @@ const _api_shader_params = {
 	"u_ground_normal_roughness_0": true,
 	"u_ground_normal_roughness_1": true,
 	"u_ground_normal_roughness_2": true,
-	"u_ground_normal_roughness_3": true
+	"u_ground_normal_roughness_3": true,
+
+	"u_ground_albedo_bump_array": true,
+	"u_ground_normal_roughness_array": true
 }
 
-const SHADER_SIMPLE4 = "Classic4"
-const SHADER_SIMPLE4_LITE = "Classic4Lite"
-const SHADER_CUSTOM = "Custom"
+const _api_shader_ground_albedo_params = {
+	"u_ground_albedo_bump_0": true,
+	"u_ground_albedo_bump_1": true,
+	"u_ground_albedo_bump_2": true,
+	"u_ground_albedo_bump_3": true
+}
 
-# Note: the alpha channel is used to pack additional maps
-const GROUND_ALBEDO_BUMP = 0
-const GROUND_NORMAL_ROUGHNESS = 1
-const GROUND_TEXTURE_TYPE_COUNT = 2
+const _ground_texture_array_shader_params = [
+	"u_ground_albedo_bump_array",
+	"u_ground_normal_roughness_array"
+]
 
+const _splatmap_shader_params = [
+	"u_terrain_splatmap",
+	"u_terrain_splatmap_1",
+	"u_terrain_splatmap_2",
+	"u_terrain_splatmap_3"
+]
+
+const MIN_CHUNK_SIZE = 16
+const MAX_CHUNK_SIZE = 64
+
+# Same as HTerrainTextureSet.get_texture_type_name, used for shader parameter names.
+# Indexed by HTerrainTextureSet.TYPE_*
 const _ground_enum_to_name = [
 	"albedo_bump",
 	"normal_roughness"
 ]
 
-const DEBUG_AABB = false
+const _DEBUG_AABB = false
 
-signal progress_notified(info)
-# Same as progress_notified once finished, but more convenient to yield
-signal progress_complete
 signal transform_changed(global_transform)
 
-export var collision_enabled = true setget set_collision_enabled
-export(float, 0.0, 1.0) var ambient_wind = 0.0 setget set_ambient_wind
-export(int, 2, 5) var lod_scale = 2 setget set_lod_scale, get_lod_scale
+export(float, 0.0, 1.0) var ambient_wind := 0.0 setget set_ambient_wind
+export(int, 2, 5) var lod_scale := 2.0 setget set_lod_scale, get_lod_scale
 
+# TODO Replace with `size` in world units?
 # Prefer using this instead of scaling the node's transform.
 # Spatial.scale isn't used because it's not suitable for terrains,
 # it would scale grass too and other environment objects.
-export var map_scale = Vector3(1, 1, 1) setget set_map_scale
+export var map_scale := Vector3(1, 1, 1) setget set_map_scale
 
-var _custom_shader: Shader = null
-var _shader_type: String = SHADER_SIMPLE4
-var _material: ShaderMaterial = ShaderMaterial.new()
-var _material_params_need_update: bool = false
-# Array of 2-textures arrays
-var _ground_textures := []
+var _custom_shader : Shader = null
+var _custom_globalmap_shader : Shader = null
+var _shader_type := SHADER_CLASSIC4_LITE
+var _shader_uses_texture_array := false
+var _material := ShaderMaterial.new()
+var _material_params_need_update := false
+
+# Actual number of textures supported by the shader currently selected
+var _ground_texture_count_cache = 0
+
+var _used_splatmaps_count_cache := 0
+var _is_using_indexed_splatmap := false
+
+var _texture_set := HTerrainTextureSet.new()
+var _texture_set_migration_textures = null
 
 var _data: HTerrainData = null
 
 var _mesher := Mesher.new()
 var _lodder := QuadTreeLod.new()
+var _viewer_pos_world := Vector3()
 
 # [lod][z][x] -> chunk
 # This container owns chunks
 var _chunks := []
-var _chunk_size: int = 16
+var _chunk_size: int = 32
 var _pending_chunk_updates := []
 
 var _detail_layers := []
 
+var _collision_enabled := true
 var _collider: HTerrainCollider = null
+var _collision_layer := 1
+var _collision_mask := 1
 
 # Stats & debug
-var _updated_chunks = 0
+var _updated_chunks := 0
+var _logger = Logger.get_for(self)
 
 # Editor-only
-var _edit_manual_viewer_pos := Vector3()
 var _normals_baker = null
 
+var _lookdev_enabled := false
+var _lookdev_material : ShaderMaterial
+
+
 func _init():
-	print("Create HeightMap")
+	_logger.debug("Create HeightMap")
+	# This sets up the defaults. They may be overriden shortly after by the scene loader.
 
 	_lodder.set_callbacks( \
 		funcref(self, "_cb_make_chunk"), \
@@ -115,24 +206,24 @@ func _init():
 
 	set_notify_transform(true)
 
-	# TODO Temporary! This is a workaround for https://github.com/godotengine/godot/issues/24488
+	# TODO Temporary!
+	# This is a workaround for https://github.com/godotengine/godot/issues/24488
 	_material.set_shader_param("u_ground_uv_scale", 20)
+	_material.set_shader_param("u_ground_uv_scale_vec4", Color(20, 20, 20, 20))
 	_material.set_shader_param("u_depth_blending", true)
 
-	_material.shader = load(CLASSIC4_SHADER_PATH)
+	_material.shader = load(_builtin_shaders[_shader_type].path)
 
-	_ground_textures.resize(get_ground_texture_slot_count())
-	for slot in len(_ground_textures):
-		var e = []
-		e.resize(GROUND_TEXTURE_TYPE_COUNT)
-		_ground_textures[slot] = e
-
-	if collision_enabled:
+	_texture_set.connect("changed", self, "_on_texture_set_changed")
+	
+	if _collision_enabled:
 		if _check_heightmap_collider_support():
-			_collider = HTerrainCollider.new(self)
+			_collider = HTerrainCollider.new(self, _collision_layer, _collision_mask)
 
 
 func _get_property_list():
+	# A lot of properties had to be exported like this instead of using `export`,
+	# because Godot 3 does not support easy categorization and lacks some hints
 	var props = [
 		{
 			# Terrain data is exposed only as a path in the editor,
@@ -151,6 +242,9 @@ func _get_property_list():
 			"type": TYPE_OBJECT,
 			"usage": PROPERTY_USAGE_STORAGE,
 			"hint": PROPERTY_HINT_RESOURCE_TYPE,
+			# This actually triggers `ERROR: Cannot get class`,
+			# if it were to be shown in the inspector.
+			# See https://github.com/godotengine/godot/pull/41264
 			"hint_string": "HTerrainData"
 		},
 		{
@@ -161,47 +255,81 @@ func _get_property_list():
 			"hint_string": "16, 32"
 		},
 		{
+			"name": "Collision",
+			"type": TYPE_NIL,
+			"usage": PROPERTY_USAGE_GROUP
+		},
+		{
+			"name": "collision_enabled",
+			"type": TYPE_BOOL,
+			"usage": PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE
+		},
+		{
+			"name": "collision_layer",
+			"type": TYPE_INT,
+			"usage": PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE,
+			"hint": PROPERTY_HINT_LAYERS_3D_PHYSICS
+		},
+		{
+			"name": "collision_mask",
+			"type": TYPE_INT,
+			"usage": PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE,
+			"hint": PROPERTY_HINT_LAYERS_3D_PHYSICS
+		},
+		{
+			"name": "Shader",
+			"type": TYPE_NIL,
+			"usage": PROPERTY_USAGE_GROUP
+		},
+		{
 			"name": "shader_type",
 			"type": TYPE_STRING,
 			"usage": PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE,
 			"hint": PROPERTY_HINT_ENUM,
-			"hint_string": "Classic4,Classic4Lite,Custom"
+			"hint_string": _SHADER_TYPE_HINT_STRING
 		},
 		{
-			# Had to specify it like this because need to be in category...
 			"name": "custom_shader",
 			"type": TYPE_OBJECT,
 			"usage": PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE,
 			"hint": PROPERTY_HINT_RESOURCE_TYPE,
 			"hint_string": "Shader"
+		},
+		{
+			"name": "custom_globalmap_shader",
+			"type": TYPE_OBJECT,
+			"usage": PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE,
+			"hint": PROPERTY_HINT_RESOURCE_TYPE,
+			"hint_string": "Shader"
+		},
+		{
+			"name": "texture_set",
+			"type": TYPE_OBJECT,
+			"usage": PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE,
+			"hint": PROPERTY_HINT_RESOURCE_TYPE,
+			"hint_string": "Resource"
+			# TODO Cannot properly hint the type of the resource in the inspector. 
+			# This triggers `ERROR: Cannot get class 'HTerrainTextureSet'`
+			# See https://github.com/godotengine/godot/pull/41264
+			#"hint_string": "HTerrainTextureSet"
 		}
 	]
 
-	var shader_params = VisualServer.shader_get_param_list(_material.shader.get_rid())
-	for p in shader_params:
-		if _api_shader_params.has(p.name):
-			continue
-		var cp = {}
-		for k in p:
-			cp[k] = p[k]
-		cp.name = str("shader_params/", p.name)
-		props.append(cp)
-
-	for i in range(get_ground_texture_slot_count()):
-		for t in _ground_enum_to_name:
-			props.append({
-				"name": "ground/" + t + "_" + str(i),
-				"type": TYPE_OBJECT,
-				"usage": PROPERTY_USAGE_STORAGE,
-				"hint": PROPERTY_HINT_RESOURCE_TYPE,
-				"hint_string": "Texture"
-			})
+	if _material.shader != null:
+		var shader_params := VisualServer.shader_get_param_list(_material.shader.get_rid())
+		for p in shader_params:
+			if _api_shader_params.has(p.name):
+				continue
+			var cp := {}
+			for k in p:
+				cp[k] = p[k]
+			cp.name = str("shader_params/", p.name)
+			props.append(cp)
 
 	return props
 
 
-func _get(key):
-
+func _get(key: String):
 	if key == "data_directory":
 		return _get_data_directory()
 
@@ -213,18 +341,17 @@ func _get(key):
 		else:
 			return _data
 
-	if key.begins_with("ground/"):
-		for ground_texture_type in range(GROUND_TEXTURE_TYPE_COUNT):
-			var type_name = _ground_enum_to_name[ground_texture_type]
-			if key.begins_with(str("ground/", type_name, "_")):
-				var i = key.right(len(key) - 1).to_int()
-				return get_ground_texture(i, ground_texture_type)
+	if key == "texture_set":
+		return get_texture_set()
 
 	elif key == "shader_type":
 		return get_shader_type()
 
 	elif key == "custom_shader":
 		return get_custom_shader()
+	
+	elif key == "custom_globalmap_shader":
+		return _custom_globalmap_shader
 
 	elif key.begins_with("shader_params/"):
 		var param_name = key.right(len("shader_params/"))
@@ -232,10 +359,18 @@ func _get(key):
 
 	elif key == "chunk_size":
 		return _chunk_size
+	
+	elif key == "collision_enabled":
+		return _collision_enabled
+	
+	elif key == "collision_layer":
+		return _collision_layer
 
+	elif key == "collision_mask":
+		return _collision_mask
+	
 
-func _set(key, value):
-
+func _set(key: String, value):
 	if key == "data_directory":
 		_set_data_directory(value)
 
@@ -244,18 +379,30 @@ func _set(key, value):
 	elif key == "_terrain_data":
 		set_data(value)
 
+	elif key == "texture_set":
+		set_texture_set(value)
+
+	# Legacy, left for migration from 1.4
 	if key.begins_with("ground/"):
-		for ground_texture_type in range(GROUND_TEXTURE_TYPE_COUNT):
+		for ground_texture_type in HTerrainTextureSet.TYPE_COUNT:
 			var type_name = _ground_enum_to_name[ground_texture_type]
 			if key.begins_with(str("ground/", type_name, "_")):
 				var i = key.right(len(key) - 1).to_int()
-				set_ground_texture(i, ground_texture_type, value)
+				if _texture_set_migration_textures == null:
+					_texture_set_migration_textures = []
+				while i >= len(_texture_set_migration_textures):
+					_texture_set_migration_textures.append([null, null])
+				var texs = _texture_set_migration_textures[i]
+				texs[ground_texture_type] = value
 
 	elif key == "shader_type":
 		set_shader_type(value)
 
 	elif key == "custom_shader":
 		set_custom_shader(value)
+	
+	elif key == "custom_globalmap_shader":
+		_custom_globalmap_shader = value
 
 	elif key.begins_with("shader_params/"):
 		var param_name = key.right(len("shader_params/"))
@@ -263,6 +410,44 @@ func _set(key, value):
 
 	elif key == "chunk_size":
 		set_chunk_size(value)
+		
+	elif key == "collision_enabled":
+		set_collision_enabled(value)
+
+	elif key == "collision_layer":
+		_collision_layer = value
+		if _collider != null:
+			_collider.set_collision_layer(value)
+
+	elif key == "collision_mask":
+		_collision_mask = value
+		if _collider != null:
+			_collider.set_collision_mask(value)
+
+
+func get_texture_set() -> HTerrainTextureSet:
+	return _texture_set
+
+
+func set_texture_set(new_set: HTerrainTextureSet):
+	if _texture_set == new_set:
+		return
+
+	if _texture_set != null:
+		# TODO This causes `ERROR: Nonexistent signal 'changed' in [Resource:36653]` for some reason
+		_texture_set.disconnect("changed", self, "_on_texture_set_changed")
+
+	_texture_set = new_set
+
+	if _texture_set != null:
+		_texture_set.connect("changed", self, "_on_texture_set_changed")
+
+	_material_params_need_update = true
+
+
+func _on_texture_set_changed():
+	_material_params_need_update = true
+	Util.update_configuration_warning(self, false)
 
 
 func get_shader_param(param_name: String):
@@ -273,24 +458,24 @@ func set_shader_param(param_name: String, v):
 	_material.set_shader_param(param_name, v)
 
 
-func _set_data_directory(dir: String):
-	if dir != _get_data_directory():
-		if dir == "":
+func _set_data_directory(dirpath: String):
+	if dirpath != _get_data_directory():
+		if dirpath == "":
 			set_data(null)
 		else:
-			var fpath = dir.plus_file(HTerrainData.META_FILENAME)
-			var f = File.new()
+			var fpath := dirpath.plus_file(HTerrainData.META_FILENAME)
+			var f := File.new()
 			if f.file_exists(fpath):
 				# Load existing
 				var d = load(fpath)
 				set_data(d)
 			else:
 				# Create new
-				var d = HTerrainData.new()
+				var d := HTerrainData.new()
 				d.resource_path = fpath
-				set_data(d)
+				set_data(d)		
 	else:
-		print("WARNING: setting twice the same terrain directory??")
+		_logger.warn("Setting twice the same terrain directory??")
 
 
 func _get_data_directory() -> String:
@@ -299,25 +484,28 @@ func _get_data_directory() -> String:
 	return ""
 
 
-static func _check_heightmap_collider_support() -> bool:
+func _check_heightmap_collider_support() -> bool:
 	var v = Engine.get_version_info()
 	if v.major == 3 and v.minor == 0 and v.patch < 4:
-		printerr("Heightmap collision shape not supported in this version of Godot, please upgrade to 3.0.4 or later")
+		_logger.error("Heightmap collision shape not supported in this version of Godot,"
+			+ " please upgrade to 3.0.4 or later")
 		return false
 	return true
 
 
 func set_collision_enabled(enabled: bool):
-	if collision_enabled != enabled:
-		collision_enabled = enabled
-		if collision_enabled:
+	if _collision_enabled != enabled:
+		_collision_enabled = enabled
+		if _collision_enabled:
 			if _check_heightmap_collider_support():
-				_collider = HTerrainCollider.new(self)
-				# Collision is not updated with data here, because loading is quite a mess at the moment...
+				_collider = HTerrainCollider.new(self, _collision_layer, _collision_mask)
+				# Collision is not updated with data here,
+				# because loading is quite a mess at the moment...
 				# 1) This function can be called while no data has been set yet
-				# 2) I don't want to update the collider more times than necessary because it's expensive
-				# 3) I would prefer not defer that to the moment the terrain is added to the tree,
-				#    because it would screw up threaded loading
+				# 2) I don't want to update the collider more times than necessary
+				#    because it's expensive
+				# 3) I would prefer not defer that to the moment the terrain is
+				#    added to the tree, because it would screw up threaded loading
 		else:
 			# Despite this object being a Reference,
 			# this should free it, as it should be the only reference
@@ -339,56 +527,73 @@ func get_chunk_size() -> int:
 	return _chunk_size
 
 
-func set_chunk_size(cs: int):
-	assert(typeof(cs) == TYPE_INT)
-	print("Setting chunk size to ", cs)
-	cs = Util.next_power_of_two(cs)
-	if cs < 16:
-		cs = 16
-	if cs > 32:
-		cs = 32
-	print("Chunk size snapped to ", cs)
+func set_chunk_size(p_cs: int):
+	assert(typeof(p_cs) == TYPE_INT)
+	_logger.debug(str("Setting chunk size to ", p_cs))
+	var cs = Util.next_power_of_two(p_cs)
+	if cs < MIN_CHUNK_SIZE:
+		cs = MIN_CHUNK_SIZE
+	if cs > MAX_CHUNK_SIZE:
+		cs = MAX_CHUNK_SIZE
+	if p_cs != cs:
+		_logger.debug(str("Chunk size snapped to ", cs))
 	if cs == _chunk_size:
 		return
 	_chunk_size = cs
 	_reset_ground_chunks()
 
 
-func set_map_scale(p_map_scale: float):
+func set_map_scale(p_map_scale: Vector3):
 	if map_scale == p_map_scale:
 		return
-	var e = 0.01
-	assert(p_map_scale.x > e)
-	assert(p_map_scale.y > e)
-	assert(p_map_scale.z > e)
+	p_map_scale.x = max(p_map_scale.x, MIN_MAP_SCALE)
+	p_map_scale.y = max(p_map_scale.y, MIN_MAP_SCALE)
+	p_map_scale.z = max(p_map_scale.z, MIN_MAP_SCALE)
 	map_scale = p_map_scale
 	_on_transform_changed()
 
 
 # Gets the global transform to apply to terrain geometry,
-# which is different from Spatial.global_transform gives (that one must only have translation)
+# which is different from Spatial.global_transform gives
+# (that one must only have translation)
 func get_internal_transform() -> Transform:
-	# Terrain can only be scaled and translated,
-	return Transform(Basis().scaled(map_scale), translation)
+	# Terrain can only be self-scaled and translated,
+	return Transform(Basis().scaled(map_scale), global_transform.origin)
 
 
 func _notification(what: int):
 	match what:
-
 		NOTIFICATION_PREDELETE:
-			print("Destroy HTerrain")
+			_logger.debug("Destroy HTerrain")
 			# Note: might get rid of a circular ref in GDScript port
 			_clear_all_chunks()
 
 		NOTIFICATION_ENTER_WORLD:
-			print("Enter world")
+			_logger.debug("Enter world")
+
+			if _texture_set_migration_textures != null \
+			and _texture_set.get_slots_count() == 0:
+				# Convert from 1.4 textures properties to HTerrainTextureSet
+				# TODO Unfortunately this might not always work,
+				# once again because Godot wants the editor's UndoRedo to have modified the
+				# resource for it to be saved... which sucks, sucks, and sucks.
+				# I'll never say it enough.
+				_texture_set.set_mode(HTerrainTextureSet.MODE_TEXTURES)
+				while _texture_set.get_slots_count() < len(_texture_set_migration_textures):
+					_texture_set.insert_slot(-1)
+				for slot_index in len(_texture_set_migration_textures):
+					var texs = _texture_set_migration_textures[slot_index]
+					for type in len(texs):
+						_texture_set.set_texture(slot_index, type, texs[type])
+				_texture_set_migration_textures = null
+
 			_for_all_chunks(EnterWorldAction.new(get_world()))
 			if _collider != null:
 				_collider.set_world(get_world())
 				_collider.set_transform(get_internal_transform())
 
 		NOTIFICATION_EXIT_WORLD:
-			print("Exit world");
+			_logger.debug("Exit world")
 			_for_all_chunks(ExitWorldAction.new())
 			if _collider != null:
 				_collider.set_world(null)
@@ -397,12 +602,18 @@ func _notification(what: int):
 			_on_transform_changed()
 
 		NOTIFICATION_VISIBILITY_CHANGED:
-			print("Visibility changed");
-			_for_all_chunks(VisibilityChangedAction.new(is_visible()))
+			_logger.debug("Visibility changed")
+			_for_all_chunks(VisibilityChangedAction.new(is_visible_in_tree()))
 
 
 func _on_transform_changed():
-	print("Transform changed");
+	_logger.debug("Transform changed")
+
+	if not is_inside_tree():
+		# The transform and other properties can be set by the scene loader,
+		# before we enter the tree
+		return
+
 	var gt = get_internal_transform()
 
 	_for_all_chunks(TransformChangedAction.new(gt))
@@ -416,7 +627,7 @@ func _on_transform_changed():
 
 
 func _enter_tree():
-	print("Enter tree")
+	_logger.debug("Enter tree")
 
 	if Engine.editor_hint and _normals_baker == null:
 		_normals_baker = load(_NORMAL_BAKER_PATH).new()
@@ -427,7 +638,6 @@ func _enter_tree():
 
 
 func _clear_all_chunks():
-
 	# The lodder has to be cleared because otherwise it will reference dangling pointers
 	_lodder.clear()
 
@@ -437,7 +647,7 @@ func _clear_all_chunks():
 		_chunks[i].clear()
 
 
-func _get_chunk_at(pos_x, pos_y, lod):
+func _get_chunk_at(pos_x: int, pos_y: int, lod: int) -> HTerrainChunk:
 	if lod < len(_chunks):
 		return Grid.grid_get_or_default(_chunks[lod], pos_x, pos_y, null)
 	return null
@@ -454,16 +664,15 @@ func has_data() -> bool:
 func set_data(new_data: HTerrainData):
 	assert(new_data == null or new_data is HTerrainData)
 
-	print("Set new data ", new_data)
+	_logger.debug(str("Set new data ", new_data))
 
 	if _data == new_data:
 		return
 
 	if has_data():
-		print("Disconnecting old HeightMapData")
+		_logger.debug("Disconnecting old HeightMapData")
 		_data.disconnect("resolution_changed", self, "_on_data_resolution_changed")
 		_data.disconnect("region_changed", self, "_on_data_region_changed")
-		_data.disconnect("progress_notified", self, "_on_data_progress_notified")
 		_data.disconnect("map_changed", self, "_on_data_map_changed")
 		_data.disconnect("map_added", self, "_on_data_map_added")
 		_data.disconnect("map_removed", self, "_on_data_map_removed")
@@ -479,7 +688,7 @@ func set_data(new_data: HTerrainData):
 	_clear_all_chunks()
 
 	if has_data():
-		print("Connecting new HeightMapData")
+		_logger.debug("Connecting new HeightMapData")
 
 		# This is a small UX improvement so that the user sees a default terrain
 		if is_inside_tree() and Engine.is_editor_hint():
@@ -491,7 +700,6 @@ func set_data(new_data: HTerrainData):
 
 		_data.connect("resolution_changed", self, "_on_data_resolution_changed")
 		_data.connect("region_changed", self, "_on_data_region_changed")
-		_data.connect("progress_notified", self, "_on_data_progress_notified")
 		_data.connect("map_changed", self, "_on_data_map_changed")
 		_data.connect("map_added", self, "_on_data_map_added")
 		_data.connect("map_removed", self, "_on_data_map_removed")
@@ -502,28 +710,17 @@ func set_data(new_data: HTerrainData):
 		_on_data_resolution_changed()
 
 	_material_params_need_update = true
-	print("Set data done")
-
-
-func _on_data_progress_notified(info):
-	emit_signal("progress_notified", info)
-
-	if info.finished:
-		# Update collider when data is loaded
-		if _collider != null:
-			_collider.create_from_terrain_data(_data)
-		
-		for layer in _detail_layers:
-			layer.update_material()
-
-		emit_signal("progress_complete")
+	
+	Util.update_configuration_warning(self, true)
+	
+	_logger.debug("Set data done")
 
 
 # The collider might be used in editor for other tools (like snapping to floor),
 # so the whole collider can be updated in one go.
 # It may be slow for ingame use, so prefer calling it when appropriate.
 func update_collider():
-	assert(collision_enabled)
+	assert(_collision_enabled)
 	assert(_collider != null)
 	_collider.create_from_terrain_data(_data)
 
@@ -544,12 +741,12 @@ func _reset_ground_chunks():
 
 	_chunks.resize(_lodder.get_lod_count())
 
-	var cres = _data.get_resolution() / _chunk_size
-	var csize_x = cres
-	var csize_y = cres
+	var cres := _data.get_resolution() / _chunk_size
+	var csize_x := cres
+	var csize_y := cres
 
 	for lod in range(_lodder.get_lod_count()):
-		print("Create grid for lod ", lod, ", ", csize_x, "x", csize_y)
+		_logger.debug(str("Create grid for lod ", lod, ", ", csize_x, "x", csize_y))
 		var grid = Grid.create_grid(csize_x, csize_y)
 		_chunks[lod] = grid
 		csize_x /= 2
@@ -559,14 +756,13 @@ func _reset_ground_chunks():
 
 
 func _on_data_region_changed(min_x, min_y, size_x, size_y, channel):
-	#print_line(String("_on_data_region_changed {0}, {1}, {2}, {3}").format(varray(min_x, min_y, max_x, max_y)));
-
 	# Testing only heights because it's the only channel that can impact geometry and LOD
 	if channel == HTerrainData.CHANNEL_HEIGHT:
 		set_area_dirty(min_x, min_y, size_x, size_y)
 
 		if _normals_baker != null:
-			_normals_baker.request_tiles_in_region(Vector2(min_x, min_y), Vector2(size_x, size_y))
+			_normals_baker.request_tiles_in_region(
+				Vector2(min_x, min_y), Vector2(size_x, size_y))
 
 
 func _on_data_map_changed(type: int, index: int):
@@ -585,17 +781,25 @@ func _on_data_map_changed(type: int, index: int):
 func _on_data_map_added(type: int, index: int):
 	if type == HTerrainData.CHANNEL_DETAIL:
 		for layer in _detail_layers:
+			# Shift indexes up since one was inserted
+			if layer.layer_index >= index:
+				layer.layer_index += 1
 			layer.update_material()
 	else:
 		_material_params_need_update = true
+	Util.update_configuration_warning(self, true)
 
 
 func _on_data_map_removed(type: int, index: int):
 	if type == HTerrainData.CHANNEL_DETAIL:
 		for layer in _detail_layers:
+			# Shift indexes down since one was removed
+			if layer.layer_index > index:
+				layer.layer_index -= 1
 			layer.update_material()
 	else:
 		_material_params_need_update = true
+	Util.update_configuration_warning(self, true)
 
 
 func get_shader_type() -> String:
@@ -606,17 +810,11 @@ func set_shader_type(type: String):
 	if type == _shader_type:
 		return
 	_shader_type = type
-
-	match _shader_type:
-		SHADER_SIMPLE4:
-			_material.shader = load(CLASSIC4_SHADER_PATH)
-		SHADER_SIMPLE4_LITE:
-			_material.shader = load(CLASSIC4_LITE_SHADER_PATH)
-		SHADER_CUSTOM:
-			_material.shader = _custom_shader
-		_:
-			printerr("Unknown shader type: '", _shader_type, "'")
-			_material.shader = load(CLASSIC4_SHADER_PATH)
+	
+	if _shader_type == SHADER_CUSTOM:
+		_material.shader = _custom_shader
+	else:
+		_material.shader = load(_builtin_shaders[_shader_type].path)
 
 	_material_params_need_update = true
 	
@@ -638,10 +836,10 @@ func set_custom_shader(shader: Shader):
 	if Engine.is_editor_hint() and shader != null and is_inside_tree():
 		# When the new shader is empty, allow to fork from the previous shader
 		if shader.get_code().empty():
-			print("Populating custom shader with default code")
-			var src = _material.shader
+			_logger.debug("Populating custom shader with default code")
+			var src := _material.shader
 			if src == null:
-				src = load(CLASSIC4_SHADER_PATH)
+				src = load(_builtin_shaders[SHADER_CLASSIC4].path)
 			shader.set_code(src.code)
 			# TODO If code isn't empty,
 			# verify existing parameters and issue a warning if important ones are missing
@@ -665,26 +863,24 @@ func _on_custom_shader_changed():
 
 
 func _update_material_params():
-
 	assert(_material != null)
-	print("Updating terrain material params")
-
-	var height_texture
-	var normal_texture
-	var color_texture
-	var splat_texture
-	var global_texture
-	var res = Vector2(-1, -1)
+	_logger.debug("Updating terrain material params")
+		
+	var terrain_textures := {}
+	var res := Vector2(-1, -1)
+	
+	var lookdev_material : ShaderMaterial
+	if _lookdev_enabled:
+		lookdev_material = _get_lookdev_material()
 
 	# TODO Only get textures the shader supports
 
 	if has_data():
-		height_texture = _data.get_texture(HTerrainData.CHANNEL_HEIGHT)
-		normal_texture = _data.get_texture(HTerrainData.CHANNEL_NORMAL)
-		color_texture = _data.get_texture(HTerrainData.CHANNEL_COLOR)
-		splat_texture = _data.get_texture(HTerrainData.CHANNEL_SPLAT)
-		if _data.get_map_count(HTerrainData.CHANNEL_GLOBAL_ALBEDO) != 0:
-			global_texture = _data.get_texture(HTerrainData.CHANNEL_GLOBAL_ALBEDO)
+		for map_type in HTerrainData.CHANNEL_COUNT:
+			var count := _data.get_map_count(map_type)
+			for i in count:
+				var param_name: String = HTerrainData.get_map_shader_param_name(map_type, i)
+				terrain_textures[param_name] = _data.get_texture(map_type, i)
 		res.x = _data.get_resolution()
 		res.y = res.x
 
@@ -698,41 +894,115 @@ func _update_material_params():
 		# This is needed to properly transform normals if the terrain is scaled
 		var normal_basis = gt.basis.inverse().transposed()
 		_material.set_shader_param(SHADER_PARAM_NORMAL_BASIS, normal_basis)
+		
+		if lookdev_material != null:
+			lookdev_material.set_shader_param(SHADER_PARAM_INVERSE_TRANSFORM, t)
+			lookdev_material.set_shader_param(SHADER_PARAM_NORMAL_BASIS, normal_basis)
+	
+	for param_name in terrain_textures:
+		var tex = terrain_textures[param_name]
+		_material.set_shader_param(param_name, tex)
+		if lookdev_material != null:
+			lookdev_material.set_shader_param(param_name, tex)
 
-	_material.set_shader_param(SHADER_PARAM_HEIGHT_TEXTURE, height_texture)
-	_material.set_shader_param(SHADER_PARAM_NORMAL_TEXTURE, normal_texture)
-	_material.set_shader_param(SHADER_PARAM_COLOR_TEXTURE, color_texture)
-	_material.set_shader_param(SHADER_PARAM_SPLAT_TEXTURE, splat_texture)
-	_material.set_shader_param("u_terrain_globalmap", global_texture)
+	if _texture_set != null:
+		match _texture_set.get_mode():
+			HTerrainTextureSet.MODE_TEXTURES:
+				var slots_count := _texture_set.get_slots_count()
+				for type in HTerrainTextureSet.TYPE_COUNT:
+					for slot_index in slots_count:
+						var texture := _texture_set.get_texture(slot_index, type)
+						var shader_param := _get_ground_texture_shader_param_name(type, slot_index)
+						_material.set_shader_param(shader_param, texture)
 
-	for slot in len(_ground_textures):
-		var textures = _ground_textures[slot]
-		for type in len(textures):
-			var shader_param = get_ground_texture_shader_param(type, slot)
-			_material.set_shader_param(shader_param, textures[type])
+			HTerrainTextureSet.MODE_TEXTURE_ARRAYS:
+				for type in HTerrainTextureSet.TYPE_COUNT:
+					var texture_array := _texture_set.get_texture_array(type)
+					var shader_params := _get_ground_texture_array_shader_param_name(type)
+					_material.set_shader_param(shader_params, texture_array)
+
+	_shader_uses_texture_array = false
+	_is_using_indexed_splatmap = false
+	_used_splatmaps_count_cache = 0
+
+	var shader := _material.shader
+	if shader != null:
+		var param_list := VisualServer.shader_get_param_list(shader.get_rid())
+		_ground_texture_count_cache = 0
+		for p in param_list:
+			if _api_shader_ground_albedo_params.has(p.name):
+				_ground_texture_count_cache += 1
+			elif p.name == "u_ground_albedo_bump_array":
+				_shader_uses_texture_array = true
+			elif p.name == "u_terrain_splat_index_map":
+				_is_using_indexed_splatmap = true
+			elif p.name in _splatmap_shader_params:
+				_used_splatmaps_count_cache += 1
+
+
+# TODO Rename is_shader_using_texture_array()
+# Tells if the current shader is using a texture array.
+# This will only be valid once the material has been updated internally.
+# (for example it won't be valid before the terrain is added to the SceneTree)
+func is_using_texture_array() -> bool:
+	return _shader_uses_texture_array
+
+
+# Gets how many splatmaps the current shader is using.
+# This will only be valid once the material has been updated internally.
+# (for example it won't be valid before the terrain is added to the SceneTree)
+func get_used_splatmaps_count() -> int:
+	return _used_splatmaps_count_cache
+
+
+# Tells if the current shader is using a splatmap type based on indexes and weights.
+# This will only be valid once the material has been updated internally.
+# (for example it won't be valid before the terrain is added to the SceneTree)
+func is_using_indexed_splatmap() -> bool:
+	return _is_using_indexed_splatmap
+
+
+static func _get_common_shader_params(shader1: Shader, shader2: Shader) -> Array:
+	var shader1_param_names := {}
+	var common_params := []
+	
+	var shader1_params := VisualServer.shader_get_param_list(shader1.get_rid())
+	var shader2_params := VisualServer.shader_get_param_list(shader2.get_rid())
+	
+	for p in shader1_params:
+		shader1_param_names[p.name] = true
+	
+	for p in shader2_params:
+		if shader1_param_names.has(p.name):
+			common_params.append(p.name)
+	
+	return common_params
 
 
 # Helper used for globalmap baking
 func setup_globalmap_material(mat: ShaderMaterial):
+	mat.shader = get_globalmap_shader()
+	if mat.shader == null:
+		_logger.error("Could not find a shader to use for baking the global map.")
+		return
+	# Copy all parameters shaders have in common
+	var common_params = _get_common_shader_params(mat.shader, _material.shader)
+	for param_name in common_params:
+		var v = _material.get_shader_param(param_name)
+		mat.set_shader_param(param_name, v)
 
-	var color_texture
-	var splat_texture
 
-	if has_data():
-		color_texture = _data.get_texture(HTerrainData.CHANNEL_COLOR)
-		splat_texture = _data.get_texture(HTerrainData.CHANNEL_SPLAT)
-
-	mat.set_shader_param("u_terrain_splatmap", splat_texture)
-	mat.set_shader_param("u_terrain_colormap", color_texture)
-	mat.set_shader_param("u_depth_blending", get_shader_param("u_depth_blending"))
-	mat.set_shader_param("u_ground_uv_scale", get_shader_param("u_ground_uv_scale"))
-
-	for slot in len(_ground_textures):
-		var textures = _ground_textures[slot]
-		for type in len(textures):
-			var shader_param = get_ground_texture_shader_param(type, slot)
-			var tex = textures[type]
-			mat.set_shader_param(shader_param, tex)
+# Gets which shader will be used to bake the globalmap
+func get_globalmap_shader() -> Shader:
+	if _shader_type == SHADER_CUSTOM:
+		if _custom_globalmap_shader != null:
+			return _custom_globalmap_shader
+		_logger.warn("The terrain uses a custom shader but doesn't have one for baking the "
+			+ "global map. Will attempt to use a built-in shader.")
+		if is_using_texture_array():
+			return load(_builtin_shaders[SHADER_ARRAY].global_path) as Shader
+		return load(_builtin_shaders[SHADER_CLASSIC4].global_path) as Shader
+	return load(_builtin_shaders[_shader_type].global_path) as Shader
 
 
 func set_lod_scale(lod_scale: float):
@@ -780,39 +1050,62 @@ const s_rdirs = [
 	[0, -1]
 ]
 
-func _process(delta: float):
 
-	# Get viewer pos
-	var viewer_pos = Vector3()
-	if Engine.editor_hint:
-		# In editor, we would need to use the editor's camera, not the `current` one defined in the scene
-		viewer_pos = _edit_manual_viewer_pos
-	else:
-		var viewport = get_viewport()
+func _edit_update_viewer_position(camera: Camera):
+	_update_viewer_position(camera)
+
+
+func _update_viewer_position(camera: Camera):
+	if camera == null:
+		var viewport := get_viewport()
 		if viewport != null:
-			var camera = viewport.get_camera()
-			if camera != null:
-				viewer_pos = camera.get_global_transform().origin
+			camera = viewport.get_camera()
+	
+	if camera == null:
+		return
+	
+	if camera.projection == Camera.PROJECTION_ORTHOGONAL:
+		# In this mode, due to the fact Godot does not allow negative near plane,
+		# users have to pull the camera node very far away, but it confuses LOD
+		# into very low detail, while the seen area remains the same.
+		# So we need to base LOD on a different metric.
+		var cam_pos := camera.global_transform.origin
+		var cam_dir := -camera.global_transform.basis.z
+		var max_distance := camera.far * 1.2
+		var hit_cell_pos = cell_raycast(cam_pos, cam_dir, max_distance)
+		
+		if hit_cell_pos != null:
+			var cell_to_world := get_internal_transform()
+			var h := _data.get_height_at(hit_cell_pos.x, hit_cell_pos.y)
+			_viewer_pos_world = cell_to_world * Vector3(hit_cell_pos.x, h, hit_cell_pos.y)
+			
+	else:
+		_viewer_pos_world = camera.global_transform.origin
+
+
+func _process(delta: float):
+	if not Engine.is_editor_hint():
+		# In editor, the camera is only accessible from an editor plugin
+		_update_viewer_position(null)
+	var viewer_pos := _viewer_pos_world
 
 	if has_data():
-
 		if _data.is_locked():
 			# Can't use the data for now
 			return
 
 		if _data.get_resolution() != 0:
-			var gt = get_internal_transform()
-			var local_viewer_pos = gt.affine_inverse() * viewer_pos
+			var gt := get_internal_transform()
+			var local_viewer_pos := gt.affine_inverse() * viewer_pos
 			#var time_before = OS.get_ticks_msec()
 			_lodder.update(local_viewer_pos)
 			#var time_elapsed = OS.get_ticks_msec() - time_before
 			#if Engine.get_frames_drawn() % 60 == 0:
-			#	print("Lodder time: ", time_elapsed)
+			#	_logger.debug(str("Lodder time: ", time_elapsed))
 
 		if _data.get_map_count(HTerrainData.CHANNEL_DETAIL) > 0:
 			# Note: the detail system is not affected by map scale,
 			# so we have to send viewer position in world space
-
 			for layer in _detail_layers:
 				layer.process(delta, viewer_pos)
 
@@ -824,16 +1117,14 @@ func _process(delta: float):
 	# chunk got joined or split requires them to create or revert seams
 	var precount = _pending_chunk_updates.size()
 	for i in range(precount):
-		var u = _pending_chunk_updates[i]
+		var u: PendingChunkUpdate = _pending_chunk_updates[i]
 
 		# In case the chunk got split
-		for d in range(4):
-
+		for d in 4:
 			var ncpos_x = u.pos_x + s_dirs[d][0]
 			var ncpos_y = u.pos_y + s_dirs[d][1]
 
-			var nchunk = _get_chunk_at(ncpos_x, ncpos_y, u.lod)
-
+			var nchunk := _get_chunk_at(ncpos_x, ncpos_y, u.lod)
 			if nchunk != null and nchunk.is_active():
 				# Note: this will append elements to the array we are iterating on,
 				# but we iterate only on the previous count so it should be fine
@@ -841,79 +1132,76 @@ func _process(delta: float):
 
 		# In case the chunk got joined
 		if u.lod > 0:
-			var cpos_upper_x = u.pos_x * 2
-			var cpos_upper_y = u.pos_y * 2
-			var nlod = u.lod - 1
+			var cpos_upper_x := u.pos_x * 2
+			var cpos_upper_y := u.pos_y * 2
+			var nlod := u.lod - 1
 
-			for rd in range(8):
-
+			for rd in 8:
 				var ncpos_upper_x = cpos_upper_x + s_rdirs[rd][0]
 				var ncpos_upper_y = cpos_upper_y + s_rdirs[rd][1]
 
-				var nchunk = _get_chunk_at(ncpos_upper_x, ncpos_upper_y, nlod)
-
+				var nchunk := _get_chunk_at(ncpos_upper_x, ncpos_upper_y, nlod)
 				if nchunk != null and nchunk.is_active():
 					_add_chunk_update(nchunk, ncpos_upper_x, ncpos_upper_y, nlod)
 
 	# Update chunks
+	var lvisible := is_visible_in_tree()
 	for i in range(len(_pending_chunk_updates)):
-
-		var u = _pending_chunk_updates[i]
-		var chunk = _get_chunk_at(u.pos_x, u.pos_y, u.lod)
+		var u: PendingChunkUpdate = _pending_chunk_updates[i]
+		var chunk := _get_chunk_at(u.pos_x, u.pos_y, u.lod)
 		assert(chunk != null)
-		_update_chunk(chunk, u.lod)
+		_update_chunk(chunk, u.lod, lvisible)
+		_updated_chunks += 1
 
 	_pending_chunk_updates.clear()
 
 	if _material_params_need_update:
 		_update_material_params()
+		Util.update_configuration_warning(self, false)
 		_material_params_need_update = false
 
 	# DEBUG
 #	if(_updated_chunks > 0):
-#		print("Updated {0} chunks".format(_updated_chunks))
+#		_logger.debug(str("Updated {0} chunks".format(_updated_chunks)))
 
 
-func _update_chunk(chunk, lod: int):
+func _update_chunk(chunk: HTerrainChunk, lod: int, p_visible: bool):
 	assert(has_data())
 
 	# Check for my own seams
-	var seams = 0;
-	var cpos_x = chunk.cell_origin_x / (_chunk_size << lod)
-	var cpos_y = chunk.cell_origin_y / (_chunk_size << lod)
-	var cpos_lower_x = cpos_x / 2
-	var cpos_lower_y = cpos_y / 2
+	var seams := 0
+	var cpos_x := chunk.cell_origin_x / (_chunk_size << lod)
+	var cpos_y := chunk.cell_origin_y / (_chunk_size << lod)
+	var cpos_lower_x := cpos_x / 2
+	var cpos_lower_y := cpos_y / 2
 
 	# Check for lower-LOD chunks around me
-	for d in range(4):
+	for d in 4:
 		var ncpos_lower_x = (cpos_x + s_dirs[d][0]) / 2
 		var ncpos_lower_y = (cpos_y + s_dirs[d][1]) / 2
 		if ncpos_lower_x != cpos_lower_x or ncpos_lower_y != cpos_lower_y:
-			var nchunk = _get_chunk_at(ncpos_lower_x, ncpos_lower_y, lod + 1)
+			var nchunk := _get_chunk_at(ncpos_lower_x, ncpos_lower_y, lod + 1)
 			if nchunk != null and nchunk.is_active():
 				seams |= (1 << d)
 
-	var mesh = _mesher.get_chunk(lod, seams)
+	var mesh := _mesher.get_chunk(lod, seams)
 	chunk.set_mesh(mesh)
 
 	# Because chunks are rendered using vertex shader displacement,
 	# the renderer cannot rely on the mesh's AABB.
-	var s = _chunk_size << lod;
-	var aabb = _data.get_region_aabb(chunk.cell_origin_x, chunk.cell_origin_y, s, s)
+	var s := _chunk_size << lod
+	var aabb := _data.get_region_aabb(chunk.cell_origin_x, chunk.cell_origin_y, s, s)
 	aabb.position.x = 0
 	aabb.position.z = 0
 	chunk.set_aabb(aabb)
 
-	_updated_chunks += 1
-
-	chunk.set_visible(is_visible())
+	chunk.set_visible(p_visible)
 	chunk.set_pending_update(false)
 
 
-func _add_chunk_update(chunk, pos_x: int, pos_y: int, lod: int):
-
+func _add_chunk_update(chunk: HTerrainChunk, pos_x: int, pos_y: int, lod: int):
 	if chunk.is_pending_update():
-		#print_line("Chunk update is already pending!");
+		#_logger.debug("Chunk update is already pending!")
 		return
 
 	assert(lod < len(_chunks))
@@ -923,7 +1211,7 @@ func _add_chunk_update(chunk, pos_x: int, pos_y: int, lod: int):
 	assert(pos_x < len(_chunks[lod][pos_y]))
 
 	# No update pending for this chunk, create one
-	var u = PendingChunkUpdate.new()
+	var u := PendingChunkUpdate.new()
 	u.pos_x = pos_x
 	u.pos_y = pos_y
 	u.lod = lod
@@ -931,63 +1219,61 @@ func _add_chunk_update(chunk, pos_x: int, pos_y: int, lod: int):
 
 	chunk.set_pending_update(true)
 
-	# TODO Neighboring chunks might need an update too because of normals and seams being updated
+	# TODO Neighboring chunks might need an update too
+	# because of normals and seams being updated
 
 
 # Used when editing an existing terrain
-func set_area_dirty(origin_in_cells_x: int, origin_in_cells_y: int, size_in_cells_x: int, size_in_cells_y: int):
+func set_area_dirty(origin_in_cells_x: int, origin_in_cells_y: int, \
+					size_in_cells_x: int, size_in_cells_y: int):
 
-	var cpos0_x = origin_in_cells_x / _chunk_size
-	var cpos0_y = origin_in_cells_y / _chunk_size
-	var csize_x = (size_in_cells_x - 1) / _chunk_size + 1
-	var csize_y = (size_in_cells_y - 1) / _chunk_size + 1
+	var cpos0_x := origin_in_cells_x / _chunk_size
+	var cpos0_y := origin_in_cells_y / _chunk_size
+	var csize_x := (size_in_cells_x - 1) / _chunk_size + 1
+	var csize_y := (size_in_cells_y - 1) / _chunk_size + 1
 
 	# For each lod
 	for lod in range(_lodder.get_lod_count()):
-
 		# Get grid and chunk size
 		var grid = _chunks[lod]
-		var s = _lodder.get_lod_size(lod)
+		var s := _lodder.get_lod_size(lod)
 
 		# Convert rect into this lod's coordinates:
 		# Pick min and max (included), divide them, then add 1 to max so it's excluded again
-		var min_x = cpos0_x / s
-		var min_y = cpos0_y / s
-		var max_x = (cpos0_x + csize_x - 1) / s + 1
-		var max_y = (cpos0_y + csize_y - 1) / s + 1
+		var min_x := cpos0_x / s
+		var min_y := cpos0_y / s
+		var max_x := (cpos0_x + csize_x - 1) / s + 1
+		var max_y := (cpos0_y + csize_y - 1) / s + 1
 
 		# Find which chunks are within
-		var cy = min_y
-		while cy < max_y:
-			var cx = min_x
-			while cx < max_x:
-
+		for cy in range(min_y, max_y):
+			for cx in range(min_x, max_x):
 				var chunk = Grid.grid_get_or_default(grid, cx, cy, null)
-
 				if chunk != null and chunk.is_active():
 					_add_chunk_update(chunk, cx, cy, lod)
-
-				cx += 1
-			cy += 1
 
 
 # Called when a chunk is needed to be seen
 func _cb_make_chunk(cpos_x: int, cpos_y: int, lod: int):
-
 	# TODO What if cpos is invalid? _get_chunk_at will return NULL but that's still invalid
-	var chunk = _get_chunk_at(cpos_x, cpos_y, lod)
+	var chunk := _get_chunk_at(cpos_x, cpos_y, lod)
 
 	if chunk == null:
 		# This is the first time this chunk is required at this lod, generate it
+		
+		var lod_factor := _lodder.get_lod_size(lod)
+		var origin_in_cells_x := cpos_x * _chunk_size * lod_factor
+		var origin_in_cells_y := cpos_y * _chunk_size * lod_factor
+		
+		var material = _material
+		if _lookdev_enabled:
+			material = _get_lookdev_material()
 
-		var lod_factor = _lodder.get_lod_size(lod)
-		var origin_in_cells_x = cpos_x * _chunk_size * lod_factor
-		var origin_in_cells_y = cpos_y * _chunk_size * lod_factor
-
-		if DEBUG_AABB:
-			chunk = HTerrainChunkDebug.new(self, origin_in_cells_x, origin_in_cells_y, _material)
+		if _DEBUG_AABB:
+			chunk = HTerrainChunkDebug.new(
+				self, origin_in_cells_x, origin_in_cells_y, material)
 		else:
-			chunk = HTerrainChunk.new(self, origin_in_cells_x, origin_in_cells_y, _material)
+			chunk = HTerrainChunk.new(self, origin_in_cells_x, origin_in_cells_y, material)
 		chunk.parent_transform_changed(get_internal_transform())
 
 		var grid = _chunks[lod]
@@ -995,112 +1281,101 @@ func _cb_make_chunk(cpos_x: int, cpos_y: int, lod: int):
 		row[cpos_x] = chunk
 
 	# Make sure it gets updated
-	_add_chunk_update(chunk, cpos_x, cpos_y, lod);
+	_add_chunk_update(chunk, cpos_x, cpos_y, lod)
 
 	chunk.set_active(true)
-
 	return chunk
 
 
 # Called when a chunk is no longer seen
-func _cb_recycle_chunk(chunk, cx: int, cy: int, lod: int):
+func _cb_recycle_chunk(chunk: HTerrainChunk, cx: int, cy: int, lod: int):
 	chunk.set_visible(false)
 	chunk.set_active(false)
 
 
 func _cb_get_vertical_bounds(cpos_x: int, cpos_y: int, lod: int):
-	var chunk_size = _chunk_size * _lodder.get_lod_size(lod)
-	var origin_in_cells_x = cpos_x * chunk_size
-	var origin_in_cells_y = cpos_y * chunk_size
-	# This is a hack for speed, because the proper algorithm appears to be too slow for GDScript.
+	var chunk_size := _chunk_size * _lodder.get_lod_size(lod)
+	var origin_in_cells_x := cpos_x * chunk_size
+	var origin_in_cells_y := cpos_y * chunk_size
+	# This is a hack for speed,
+	# because the proper algorithm appears to be too slow for GDScript.
 	# It should be good enough for most common cases, unless you have super-sharp cliffs.
-	return _data.get_point_aabb(origin_in_cells_x + chunk_size / 2, origin_in_cells_y + chunk_size / 2)
-#	var aabb = _data.get_region_aabb(origin_in_cells_x, origin_in_cells_y, chunk_size, chunk_size)
+	return _data.get_point_aabb(
+		origin_in_cells_x + chunk_size / 2, 
+		origin_in_cells_y + chunk_size / 2)
+#	var aabb = _data.get_region_aabb(
+#		origin_in_cells_x, origin_in_cells_y, chunk_size, chunk_size)
 #	return Vector2(aabb.position.y, aabb.end.y)
-
-
-func _local_pos_to_cell(local_pos: Vector3) -> Array:
-	return [
-		int(local_pos.x),
-		int(local_pos.z)
-	]
 
 
 static func _get_height_or_default(im: Image, pos_x: int, pos_y: int):
 	if pos_x < 0 or pos_y < 0 or pos_x >= im.get_width() or pos_y >= im.get_height():
-		return 0
+		return 0.0
 	return im.get_pixel(pos_x, pos_y).r
 
 
 # Performs a raycast to the terrain without using the collision engine.
-# This is mostly useful in the editor, where the collider isn't running.
-# It may be slow on very large distance, but should be enough for editing purpose.
-# out_cell_pos is the returned hit position and must be specified as an array of 2 integers.
-# Returns false if there is no hit.
-func cell_raycast(origin_world: Vector3, dir_world: Vector3, out_cell_pos: Array):
+# This is mostly useful in the editor, where the collider can't be updated in realtime.
+# Returns cell hit position as Vector2, or null if there was no hit.
+# TODO Cannot type hint nullable return value
+func cell_raycast(origin_world: Vector3, dir_world: Vector3, max_distance: float):
 	assert(typeof(origin_world) == TYPE_VECTOR3)
 	assert(typeof(dir_world) == TYPE_VECTOR3)
-	assert(typeof(out_cell_pos) == TYPE_ARRAY)
-
 	if not has_data():
-		return false
-
-	var heights = _data.get_image(HTerrainData.CHANNEL_HEIGHT)
-	if heights == null:
-		return false
-
-	var to_local = get_internal_transform().affine_inverse()
+		return null
+	# Transform to local (takes map scale into account)
+	var to_local := get_internal_transform().affine_inverse()
 	var origin = to_local.xform(origin_world)
 	var dir = to_local.basis.xform(dir_world)
-
-	heights.lock()
-
-	var cpos = _local_pos_to_cell(origin)
-	if origin.y < _get_height_or_default(heights, cpos[0], cpos[1]):
-		# Below
-		return false
-
-	var unit = 1.0
-	var d = 0.0
-	var max_distance = 800.0
-	var pos = origin
-
-	# Slow, but enough for edition
-	# TODO Could be optimized with a form of binary search
-	while d < max_distance:
-		pos += dir * unit
-		cpos = _local_pos_to_cell(pos)
-		if _get_height_or_default(heights, cpos[0], cpos[1]) > pos.y:
-			cpos = _local_pos_to_cell(pos - dir * unit);
-			out_cell_pos[0] = cpos[0]
-			out_cell_pos[1] = cpos[1]
-			return true
-
-		d += unit
-
-	return false
+	return _data.cell_raycast(origin, dir, max_distance)
 
 
-# TODO Rename these "splat textures"
-
-static func get_ground_texture_shader_param(ground_texture_type: int, slot: int) -> String:
+static func _get_ground_texture_shader_param_name(ground_texture_type: int, slot: int) -> String:
 	assert(typeof(slot) == TYPE_INT and slot >= 0)
 	_check_ground_texture_type(ground_texture_type)
-	return str(SHADER_PARAM_GROUND_PREFIX, _ground_enum_to_name[ground_texture_type], "_", slot)
+	return str(SHADER_PARAM_GROUND_PREFIX, 
+		_ground_enum_to_name[ground_texture_type], "_", slot)
 
 
+# @obsolete
 func get_ground_texture(slot: int, type: int) -> Texture:
-	_check_slot(slot)
-	var shader_param = get_ground_texture_shader_param(type, slot)
+	_logger.error(
+		"HTerrain.get_ground_texture is obsolete, " +
+		"use HTerrain.get_texture_set().get_texture(slot, type) instead")
+	var shader_param = _get_ground_texture_shader_param_name(type, slot)
 	return _material.get_shader_param(shader_param)
 
 
+# @obsolete
 func set_ground_texture(slot: int, type: int, tex: Texture):
-	_check_slot(slot)
+	_logger.error(
+		"HTerrain.set_ground_texture is obsolete, " +
+		"use HTerrain.get_texture_set().set_texture(slot, type, texture) instead")
 	assert(tex == null or tex is Texture)
-	var shader_param = get_ground_texture_shader_param(type, slot)
+	var shader_param = _get_ground_texture_shader_param_name(type, slot)
 	_material.set_shader_param(shader_param, tex)
-	_ground_textures[slot][type] = tex
+
+
+func _get_ground_texture_array_shader_param_name(type: int) -> String:
+	return _ground_texture_array_shader_params[type] as String
+
+
+# @obsolete
+func get_ground_texture_array(type: int) -> TextureArray:
+	_logger.error(
+		"HTerrain.get_ground_texture_array is obsolete, " +
+		"use HTerrain.get_texture_set().get_texture_array(type) instead")
+	var param_name = _get_ground_texture_array_shader_param_name(type)
+	return _material.get_shader_param(param_name)
+
+
+# @obsolete
+func set_ground_texture_array(type: int, texture_array: TextureArray):
+	_logger.error(
+		"HTerrain.set_ground_texture_array is obsolete, " +
+		"use HTerrain.get_texture_set().set_texture_array(type, texarray) instead")
+	var param_name = _get_ground_texture_array_shader_param_name(type)
+	_material.set_shader_param(param_name, texture_array)
 
 
 func _internal_add_detail_layer(layer):
@@ -1121,12 +1396,14 @@ func get_detail_layers() -> Array:
 
 # @obsolete
 func set_detail_texture(slot, tex):
-	printerr("HTerrain.set_detail_texture is obsolete, use HTerrainDetailLayer.texture instead")
+	_logger.error(
+		"HTerrain.set_detail_texture is obsolete, use HTerrainDetailLayer.texture instead")
 
 
 # @obsolete
 func get_detail_texture(slot):
-	printerr("HTerrain.get_detail_texture is obsolete, use HTerrainDetailLayer.texture instead")
+	_logger.error(
+		"HTerrain.get_detail_texture is obsolete, use HTerrainDetailLayer.texture instead")
 
 
 func set_ambient_wind(amplitude: float):
@@ -1137,50 +1414,98 @@ func set_ambient_wind(amplitude: float):
 		layer.update_material()
 
 
-func _check_slot(slot: int):
-	assert(typeof(slot) == TYPE_INT)
-	assert(slot >= 0 and slot < get_ground_texture_slot_count())
-
-
 static func _check_ground_texture_type(ground_texture_type: int):
 	assert(typeof(ground_texture_type) == TYPE_INT)
-	assert(ground_texture_type >= 0 and ground_texture_type < GROUND_TEXTURE_TYPE_COUNT)
+	assert(ground_texture_type >= 0 and ground_texture_type < HTerrainTextureSet.TYPE_COUNT)
 
 
-static func get_ground_texture_slot_count_for_shader(shader_type: String):
-	# TODO Deduce these from the shader used
-	match shader_type:
-		SHADER_SIMPLE4, \
-		SHADER_SIMPLE4_LITE:
-			return 4
-		SHADER_CUSTOM:
-			return 4
-#		SHADER_ARRAY:
-#			return 256
-	printerr("Invalid shader type specified ", shader_type)
-	return 0
-
-
+# @obsolete
 func get_ground_texture_slot_count() -> int:
-	return get_ground_texture_slot_count_for_shader(_shader_type)
+	_logger.error("get_ground_texture_slot_count is obsolete, " \
+		+ "use get_cached_ground_texture_slot_count instead")
+	return get_max_ground_texture_slot_count()
+
+# @obsolete
+func get_max_ground_texture_slot_count() -> int:
+	_logger.error("get_ground_texture_slot_count is obsolete, " \
+		+ "use get_cached_ground_texture_slot_count instead")
+	return get_cached_ground_texture_slot_count()
 
 
-func _edit_set_manual_viewer_pos(pos: Vector3):
-	_edit_manual_viewer_pos = pos
+# This is a cached value based on the actual number of texture parameters
+# in the current shader. It won't update immediately when the shader changes,
+# only after a frame. This is mostly used in the editor.
+func get_cached_ground_texture_slot_count() -> int:
+	return _ground_texture_count_cache
 
 
-func _edit_debug_draw(ci):
+func _edit_debug_draw(ci: CanvasItem):
 	_lodder.debug_draw_tree(ci)
 
 
+func _get_configuration_warning():
+	if _data == null:
+		return "The terrain is missing data.\n" \
+			+ "Select the `Data Directory` property in the inspector to assign it."
+
+	if _texture_set == null:
+		return "The terrain does not have a HTerrainTextureSet assigned\n" \
+			+ "This is required if you want to paint textures on it."
+
+	else:
+		var mode := _texture_set.get_mode()
+
+		if mode == HTerrainTextureSet.MODE_TEXTURES and is_using_texture_array():
+			return "The current shader needs texture arrays,\n" \
+				+ "but the current HTerrainTextureSet is setup with individual textures.\n" \
+				+ "You may need to switch it to TEXTURE_ARRAYS mode,\n" \
+				+ "or re-import images in this mode with the import tool."
+
+		elif mode == HTerrainTextureSet.MODE_TEXTURE_ARRAYS and not is_using_texture_array():
+			return "The current shader needs individual textures,\n" \
+				+ "but the current HTerrainTextureSet is setup with texture arrays.\n" \
+				+ "You may need to switch it to TEXTURES mode,\n" \
+				+ "or re-import images in this mode with the import tool."
+
+	# TODO Warn about unused data maps, have a tool to clean them up
+	return ""
+
+
+func set_lookdev_enabled(enable: bool):
+	if _lookdev_enabled == enable:
+		return
+	_lookdev_enabled = enable
+	_material_params_need_update = true
+	if _lookdev_enabled:
+		_for_all_chunks(SetMaterialAction.new(_get_lookdev_material()))
+	else:
+		_for_all_chunks(SetMaterialAction.new(_material))
+
+
+func set_lookdev_shader_param(param_name: String, value):
+	var mat = _get_lookdev_material()
+	mat.set_shader_param(param_name, value)
+
+
+func is_lookdev_enabled() -> bool:
+	return _lookdev_enabled
+
+
+func _get_lookdev_material() -> ShaderMaterial:
+	if _lookdev_material == null:
+		_lookdev_material = ShaderMaterial.new()
+		_lookdev_material.shader = load(_LOOKDEV_SHADER_PATH)
+	return _lookdev_material
+
+
 class PendingChunkUpdate:
-	var pos_x = 0
-	var pos_y = 0
-	var lod = 0
+	var pos_x := 0
+	var pos_y := 0
+	var lod := 0
 
 
 class EnterWorldAction:
-	var world = null
+	var world : World = null
 	func _init(w):
 		world = w
 	func exec(chunk):
@@ -1193,7 +1518,7 @@ class ExitWorldAction:
 
 
 class TransformChangedAction:
-	var transform = null
+	var transform : Transform
 	func _init(t):
 		transform = t
 	func exec(chunk):
@@ -1201,11 +1526,11 @@ class TransformChangedAction:
 
 
 class VisibilityChangedAction:
-	var visible = false
+	var visible := false
 	func _init(v):
 		visible = v
 	func exec(chunk):
-		chunk.set_visible(visible)
+		chunk.set_visible(visible and chunk.is_active())
 
 
 #class DeleteChunkAction:
@@ -1214,8 +1539,10 @@ class VisibilityChangedAction:
 
 
 class SetMaterialAction:
-	var material = null
+	var material : Material = null
 	func _init(m):
 		material = m
 	func exec(chunk):
 		chunk.set_material(material)
+
+

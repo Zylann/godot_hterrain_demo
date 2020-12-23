@@ -1,17 +1,23 @@
 tool
 extends Spatial
 
-# Child node of the terrain, used to render numerous small objects on the ground such as grass or rocks.
-# They do so by using a texture covering the terrain (a "detail map"), which is found in the terrain data itself.
-# A terrain can have multiple detail maps, and you can choose which one will be used with `layer_index`.
-# Details use instanced rendering within their own chunk grid, scattered around the player.
-# Importantly, the position and rotation of this node don't matter, and they also do NOT scale with map scale.
-# Indeed, scaling the heightmap doesn't mean we want to scale grass blades (which is not a use case I know of).
+# Child node of the terrain, used to render numerous small objects on the ground
+# such as grass or rocks. They do so by using a texture covering the terrain
+# (a "detail map"), which is found in the terrain data itself.
+# A terrain can have multiple detail maps, and you can choose which one will be
+# used with `layer_index`.
+# Details use instanced rendering within their own chunk grid, scattered around
+# the player. Importantly, the position and rotation of this node don't matter,
+# and they also do NOT scale with map scale. Indeed, scaling the heightmap
+# doesn't mean we want to scale grass blades (which is not a use case I know of).
 
-const HTerrainData = preload("hterrain_data.gd")
-const DirectMultiMeshInstance = preload("util/direct_multimesh_instance.gd")
-const DirectMeshInstance = preload("util/direct_mesh_instance.gd")
-const Util = preload("util/util.gd")
+const HTerrainData = preload("./hterrain_data.gd")
+const DirectMultiMeshInstance = preload("./util/direct_multimesh_instance.gd")
+const DirectMeshInstance = preload("./util/direct_mesh_instance.gd")
+const Util = preload("./util/util.gd")
+const Logger = preload("./util/logger.gd")
+const DefaultMesh = preload("./models/grass_quad.obj")
+var HTerrain = load("res://addons/zylann.hterrain/hterrain.gd")
 
 const CHUNK_SIZE = 32
 const DEFAULT_SHADER_PATH = "res://addons/zylann.hterrain/shaders/detail.shader"
@@ -25,16 +31,34 @@ const _API_SHADER_PARAMS = {
 	"u_terrain_normalmap": true,
 	"u_terrain_globalmap": true,
 	"u_terrain_inverse_transform": true,
+	"u_terrain_normal_basis": true,
 	"u_albedo_alpha": true,
 	"u_view_distance": true,
 	"u_ambient_wind": true
 }
 
-export(int) var layer_index = 0 setget set_layer_index, get_layer_index
-export(Texture) var texture setget set_texture, get_texture;
-export(float) var view_distance = 100.0 setget set_view_distance, get_view_distance
-export(Shader) var custom_shader setget set_custom_shader, get_custom_shader
-export(float, 0, 10) var density = 4 setget set_density, get_density
+# TODO Should be renamed `map_index`
+# Which detail map this layer will use
+export(int) var layer_index := 0 setget set_layer_index, get_layer_index
+
+# Texture to render on the detail meshes.
+export(Texture) var texture : Texture setget set_texture, get_texture
+
+# How far detail meshes can be seen.
+# TODO Improve speed of _get_chunk_aabb() so we can increase the limit
+# See https://github.com/Zylann/godot_heightmap_plugin/issues/155
+export(float, 1.0, 500.0) var view_distance := 100.0 setget set_view_distance, get_view_distance
+
+# Custom shader to replace the default one.
+export(Shader) var custom_shader : Shader setget set_custom_shader, get_custom_shader
+
+# Density modifier, to make more or less detail meshes appear overall.
+export(float, 0, 10) var density := 4.0 setget set_density, get_density
+
+# Mesh used for every detail instance (for example, every grass patch).
+# If not assigned, an internal quad mesh will be used.
+# I would have called it `mesh` but that's too broad and conflicts with local vars ._.
+export(Mesh) var instance_mesh : Mesh setget set_instance_mesh, get_instance_mesh
 
 var _material: ShaderMaterial = null
 var _default_shader: Shader = null
@@ -42,18 +66,24 @@ var _default_shader: Shader = null
 # Vector2 => DirectMultiMeshInstance
 var _chunks := {}
 
-var _multimesh: MultiMesh = null
+var _multimesh: MultiMesh
+var _multimesh_need_regen = true
 var _multimesh_instance_pool := []
 var _ambient_wind_time := 0.0
-var _first_enter_tree := true
+#var _auto_pick_index_on_enter_tree := Engine.editor_hint
 var _debug_wirecube_mesh: Mesh = null
 var _debug_cubes := []
+var _logger := Logger.get_for(self)
 
 
 func _init():
 	_default_shader = load(DEFAULT_SHADER_PATH)
 	_material = ShaderMaterial.new()
 	_material.shader = _default_shader
+	
+	_multimesh = MultiMesh.new()
+	_multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	_multimesh.color_format = MultiMesh.COLOR_8BIT
 
 
 func _enter_tree():
@@ -61,9 +91,9 @@ func _enter_tree():
 	if terrain != null:
 		terrain.connect("transform_changed", self, "_on_terrain_transform_changed")
 
-		if Engine.editor_hint and _first_enter_tree:
-			_first_enter_tree = false
-			_edit_auto_pick_index()
+		#if _auto_pick_index_on_enter_tree:
+		#	_auto_pick_index_on_enter_tree = false
+		#	_auto_pick_index()
 
 		terrain._internal_add_detail_layer(self)
 
@@ -81,42 +111,40 @@ func _exit_tree():
 	_chunks.clear()
 
 
-func _edit_auto_pick_index():
-	# Automatically pick an unused layer, or create a new one
-
-	var terrain = _get_terrain()
-	if terrain == null:
-		return
-
-	var terrain_data = terrain.get_data()
-	if terrain_data == null or terrain_data.is_locked():
-		return
-
-	var auto_index = layer_index
-	var others = terrain.get_detail_layers()
-
-	if len(others) > 0:
-		var used_layers = []
-		for other in others:
-			used_layers.append(other.layer_index)
-		used_layers.sort()
-
-		auto_index = used_layers[-1] + 1
-		for i in range(1, len(used_layers)):
-			if used_layers[i - 1] - used_layers[i] > 1:
-				# Found a hole, take it instead
-				auto_index = used_layers[i] - 1
-				break
-
-	layer_index = auto_index
-
-	var map_count = terrain_data.get_map_count(HTerrainData.CHANNEL_DETAIL)
-	if layer_index >= map_count:
-		layer_index = terrain_data._edit_add_map(HTerrainData.CHANNEL_DETAIL)
+#func _auto_pick_index():
+#	# Automatically pick an unused layer
+#
+#	var terrain = _get_terrain()
+#	if terrain == null:
+#		return
+#
+#	var terrain_data = terrain.get_data()
+#	if terrain_data == null or terrain_data.is_locked():
+#		return
+#
+#	var auto_index := layer_index
+#	var others = terrain.get_detail_layers()
+#
+#	if len(others) > 0:
+#		var used_layers := []
+#		for other in others:
+#			used_layers.append(other.layer_index)
+#		used_layers.sort()
+#
+#		auto_index = used_layers[-1]
+#		for i in range(1, len(used_layers)):
+#			if used_layers[i - 1] - used_layers[i] > 1:
+#				# Found a hole, take it instead
+#				auto_index = used_layers[i] - 1
+#				break
+#
+#	print("Auto picked ", auto_index, " ")
+#	layer_index = auto_index
 
 
-func _get_property_list():
-	var props = []
+func _get_property_list() -> Array:
+	# Dynamic properties coming from the shader
+	var props := []
 	if _material != null:
 		var shader_params = VisualServer.shader_get_param_list(_material.shader.get_rid())
 		for p in shader_params:
@@ -169,7 +197,9 @@ func set_layer_index(v: int):
 	if layer_index == v:
 		return
 	layer_index = v
-	_update_material()
+	if is_inside_tree():
+		_update_material()
+		Util.update_configuration_warning(self, false)
 
 
 func get_layer_index() -> int:
@@ -180,7 +210,8 @@ func set_view_distance(v: float):
 	if view_distance == v:
 		return
 	view_distance = max(v, 1.0)
-	_update_material()
+	if is_inside_tree():
+		_update_material()
 
 
 func get_view_distance() -> float:
@@ -206,17 +237,29 @@ func get_custom_shader() -> Shader:
 	return custom_shader
 
 
+func set_instance_mesh(p_mesh: Mesh):
+	if p_mesh == instance_mesh:
+		return
+	instance_mesh = p_mesh
+	_multimesh.mesh = _get_used_mesh()
+
+
+func get_instance_mesh() -> Mesh:
+	return instance_mesh
+
+
+func _get_used_mesh() -> Mesh:
+	if instance_mesh == null:
+		return DefaultMesh
+	return instance_mesh
+
+
 func set_density(v: float):
 	v = clamp(v, 0, 10)
 	if v == density:
 		return
 	density = v
-	# TODO Remove iteration of all chunks when Godot bug gets fixed
-	# See https://github.com/godotengine/godot/issues/32500
-	_multimesh = _generate_multimesh(CHUNK_SIZE, density, null)
-	for k in _chunks:
-		var mmi = _chunks[k]
-		mmi.set_multimesh(_multimesh)
+	_multimesh_need_regen = true
 
 
 func get_density() -> float:
@@ -260,10 +303,10 @@ func _on_terrain_transform_changed(gt: Transform):
 
 	var terrain = _get_terrain()
 	if terrain == null:
-		printerr("Detail layer is not child of a terrain!")
+		_logger.error("Detail layer is not child of a terrain!")
 		return
 
-	# Update AABBs
+	# Update AABBs, because scale might have changed
 	for k in _chunks:
 		var mmi = _chunks[k]
 		var aabb = _get_chunk_aabb(terrain, Vector3(k.x * CHUNK_SIZE, 0, k.y * CHUNK_SIZE))
@@ -274,11 +317,19 @@ func _on_terrain_transform_changed(gt: Transform):
 
 
 func process(delta: float, viewer_pos: Vector3):
-
 	var terrain = _get_terrain()
 	if terrain == null:
-		printerr("DetailLayer processing while terrain is null!")
+		_logger.error("DetailLayer processing while terrain is null!")
 		return
+
+	if _multimesh_need_regen:
+		_regen_multimesh()
+		_multimesh_need_regen = false
+		# Crash workaround for Godot 3.1
+		# See https://github.com/godotengine/godot/issues/32500
+		for k in _chunks:
+			var mmi = _chunks[k]
+			mmi.set_multimesh(_multimesh)
 
 	var local_viewer_pos = viewer_pos - terrain.translation
 
@@ -354,11 +405,14 @@ func process(delta: float, viewer_pos: Vector3):
 func _get_chunk_aabb(terrain, lpos: Vector3):
 	var terrain_scale = terrain.map_scale
 	var terrain_data = terrain.get_data()
-	var origin_cells_x = int(lpos.x / terrain_scale.x)
-	var origin_cells_z = int(lpos.z / terrain_scale.z)
-	var size_cells_x = int(CHUNK_SIZE / terrain_scale.x)
-	var size_cells_z = int(CHUNK_SIZE / terrain_scale.z)
-	var aabb = terrain_data.get_region_aabb(origin_cells_x, origin_cells_z, size_cells_x, size_cells_z)
+	var origin_cells_x := int(lpos.x / terrain_scale.x)
+	var origin_cells_z := int(lpos.z / terrain_scale.z)
+	var size_cells_x := int(CHUNK_SIZE / terrain_scale.x)
+	var size_cells_z := int(CHUNK_SIZE / terrain_scale.z)
+	
+	var aabb = terrain_data.get_region_aabb(
+		origin_cells_x, origin_cells_z, size_cells_x, size_cells_z)
+		
 	aabb.position = Vector3(lpos.x, lpos.y + aabb.position.y * terrain_scale.y, lpos.z)
 	aabb.size = Vector3(CHUNK_SIZE, aabb.size.y * terrain_scale.y, CHUNK_SIZE)
 	return aabb
@@ -378,8 +432,6 @@ func _load_chunk(terrain, cx: int, cz: int, aabb: AABB):
 		mmi = _multimesh_instance_pool[-1]
 		_multimesh_instance_pool.pop_back()
 	else:
-		if _multimesh == null:
-			_multimesh = _generate_multimesh(CHUNK_SIZE, density, null)
 		mmi = DirectMultiMeshInstance.new()
 		mmi.set_world(terrain.get_world())
 		mmi.set_multimesh(_multimesh)
@@ -410,7 +462,7 @@ func _get_ambient_wind_params() -> Vector2:
 
 func _update_material():
 	# Sets API shader properties. Custom properties are assumed to be set already
-	print("Updating detail layer material")
+	_logger.debug("Updating detail layer material")
 
 	var terrain_data = null
 	var terrain = _get_terrain()
@@ -439,7 +491,7 @@ func _update_material():
 
 	if terrain_data != null:
 		if terrain_data.is_locked():
-			print("Terrain data locked, can't update detail layer now")
+			_logger.error("Terrain data locked, can't update detail layer now")
 			return
 
 		heightmap_texture = terrain_data.get_texture(HTerrainData.CHANNEL_HEIGHT)
@@ -451,25 +503,12 @@ func _update_material():
 		if terrain_data.get_map_count(HTerrainData.CHANNEL_GLOBAL_ALBEDO) > 0:
 			globalmap_texture = terrain_data.get_texture(HTerrainData.CHANNEL_GLOBAL_ALBEDO)
 	else:
-		print("Terrain data is null, can't update detail layer completely")
+		_logger.error("Terrain data is null, can't update detail layer completely")
 
 	mat.set_shader_param("u_terrain_heightmap", heightmap_texture)
 	mat.set_shader_param("u_terrain_detailmap", detailmap_texture)
 	mat.set_shader_param("u_terrain_normalmap", normalmap_texture)
 	mat.set_shader_param("u_terrain_globalmap", globalmap_texture)
-
-
-# TODO Uncomment in Godot 3.1
-#func get_configuration_warning():
-#	var terrain = _get_terrain()
-#	if terrain == null:
-#		return "This node must be under a HTerrain parent"
-#	var terrain_data = terrain.get_data()
-#	if terrain_data == null:
-#		return "The terrain needs data to be assigned"
-#	if layer_index <= terrain_data.get_map_count(HTerrainData.CHANNEL_DETAIL):
-#		return "This layer's index is out of the range of maps the terrain has"
-#	return ""
 
 
 func _add_debug_cube(terrain, aabb: AABB):
@@ -490,51 +529,43 @@ func _add_debug_cube(terrain, aabb: AABB):
 	_debug_cubes.append(debug_cube)
 
 
-static func create_quad() -> Mesh:
-	# Vertical quad with the origin at the bottom edge
-	var positions = PoolVector3Array([
-		Vector3(-0.5, 0, 0),
-		Vector3(0.5, 0, 0),
-		Vector3(0.5, 1, 0),
-		Vector3(-0.5, 1, 0)
-	])
-	var normals = PoolVector3Array([
-		Vector3(0, 0, -1),
-		Vector3(0, 0, -1),
-		Vector3(0, 0, -1),
-		Vector3(0, 0, -1)
-	])
-	var uvs = PoolVector2Array([
-		Vector2(0, 1),
-		Vector2(1, 1),
-		Vector2(1, 0),
-		Vector2(0, 0)
-	])
-	var colors = PoolColorArray([
-		Color(1, 1, 1),
-		Color(1, 1, 1),
-		Color(1, 1, 1),
-		Color(1, 1, 1)
-	])
-	var indices = PoolIntArray([
-		0, 1, 2,
-		0, 2, 3
-	])
-	var arrays = []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = positions
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
-	arrays[Mesh.ARRAY_COLOR] = colors
-	arrays[Mesh.ARRAY_INDEX] = indices
-	var mesh = ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	return mesh
+func _regen_multimesh():
+	# We modify the existing multimesh instead of replacing it.
+	# DirectMultiMeshInstance does not keep a strong reference to them,
+	# so replacing would break pooled instances.
+	_generate_multimesh(CHUNK_SIZE, density, _get_used_mesh(), _multimesh)
 
 
-static func _generate_multimesh(resolution: int, density: float, existing_multimesh: MultiMesh) -> MultiMesh:
-	var mesh = create_quad()
+func is_layer_index_valid() -> bool:
+	var terrain = _get_terrain()
+	if terrain == null:
+		return false
+	var data = terrain.get_data()
+	if data == null:
+		return false
+	return layer_index >= 0 and layer_index < data.get_map_count(HTerrainData.CHANNEL_DETAIL)
 
+
+func _get_configuration_warning() -> String:
+	var terrain = _get_terrain()
+	if not (terrain is HTerrain):
+		return "This node must be child of an HTerrain node"
+	var data = terrain.get_data()
+	if data == null:
+		return "The terrain has no data"
+	if data.get_map_count(HTerrainData.CHANNEL_DETAIL) == 0:
+		return "The terrain does not have any detail map"
+	if layer_index < 0 or layer_index >= data.get_map_count(HTerrainData.CHANNEL_DETAIL):
+		return "Layer index is out of bounds"
+	var tex = data.get_texture(HTerrainData.CHANNEL_DETAIL, layer_index)
+	if tex == null:
+		return "The terrain does not have a map assigned in slot {0}".format([layer_index])
+	return ""
+
+
+static func _generate_multimesh(resolution: int, density: float, mesh: Mesh, multimesh: MultiMesh):
+	assert(multimesh != null)
+		
 	var position_randomness = 0.5
 	var scale_randomness = 0.0
 	#var color_randomness = 0.5
@@ -544,16 +575,8 @@ static func _generate_multimesh(resolution: int, density: float, existing_multim
 	var random_instance_count = int(cell_count * (density - floor(density)))
 	var total_instance_count = cell_count * idensity + random_instance_count
 	
-	var mm
-	if existing_multimesh != null:
-		mm = existing_multimesh
-	else:
-		mm = MultiMesh.new()
-		mm.transform_format = MultiMesh.TRANSFORM_3D
-		mm.color_format = MultiMesh.COLOR_8BIT
-
-	mm.instance_count = total_instance_count
-	mm.mesh = mesh
+	multimesh.instance_count = total_instance_count
+	multimesh.mesh = mesh
 
 	# First pass ensures uniform spread
 	var i = 0
@@ -565,22 +588,21 @@ static func _generate_multimesh(resolution: int, density: float, existing_multim
 				pos.x += rand_range(-position_randomness, position_randomness)
 				pos.z += rand_range(-position_randomness, position_randomness)
 
-				mm.set_instance_color(i, Color(1, 1, 1))
-				mm.set_instance_transform(i, Transform(_get_random_instance_basis(scale_randomness), pos))
+				multimesh.set_instance_color(i, Color(1, 1, 1))
+				multimesh.set_instance_transform(i, \
+					Transform(_get_random_instance_basis(scale_randomness), pos))
 				i += 1
 	
 	# Second pass adds the rest
 	for j in random_instance_count:
 		var pos = Vector3(rand_range(0, resolution), 0, rand_range(0, resolution))
-		mm.set_instance_color(i, Color(1, 1, 1))
-		mm.set_instance_transform(i, Transform(_get_random_instance_basis(scale_randomness), pos))
+		multimesh.set_instance_color(i, Color(1, 1, 1))
+		multimesh.set_instance_transform(i, \
+			Transform(_get_random_instance_basis(scale_randomness), pos))
 		i += 1
-
-	return mm
 
 
 static func _get_random_instance_basis(scale_randomness: float) -> Basis:
-
 	var sr = rand_range(0, scale_randomness)
 	var s = 1.0 + (sr * sr * sr * sr * sr) * 50.0
 

@@ -4,24 +4,26 @@ extends WindowDialog
 const HTerrainData = preload("../../hterrain_data.gd")
 const Errors = preload("../../util/errors.gd")
 const Util = preload("../../util/util.gd")
+const Logger = preload("../../util/logger.gd")
 
 const FORMAT_RH = 0
 const FORMAT_R16 = 1
 const FORMAT_PNG8 = 2
-const FORMAT_COUNT = 3
+const FORMAT_EXRH = 3
+const FORMAT_COUNT = 4
 
-onready var _grid = get_node("VBoxContainer/GridContainer")
-onready var _output_path_line_edit = _grid.get_node("OutputPathControl/HeightmapPathLineEdit")
-onready var _format_selector = _grid.get_node("FormatSelector")
-onready var _height_range_min_spinbox = _grid.get_node("HeightRange/HeightRangeMin")
-onready var _height_range_max_spinbox = _grid.get_node("HeightRange/HeightRangeMax")
-onready var _export_button = get_node("VBoxContainer/Buttons/ExportButton")
-onready var _show_in_explorer_checkbox = get_node("VBoxContainer/ShowInExplorerCheckbox")
+onready var _output_path_line_edit := $VB/Grid/OutputPath/HeightmapPathLineEdit as LineEdit
+onready var _format_selector := $VB/Grid/FormatSelector as OptionButton
+onready var _height_range_min_spinbox := $VB/Grid/HeightRange/HeightRangeMin as SpinBox
+onready var _height_range_max_spinbox := $VB/Grid/HeightRange/HeightRangeMax as SpinBox
+onready var _export_button := $VB/Buttons/ExportButton as Button
+onready var _show_in_explorer_checkbox := $VB/ShowInExplorerCheckbox as CheckBox
 
 var _terrain = null
-var _file_dialog = null
-var _format_names = []
-var _format_extensions = []
+var _file_dialog : EditorFileDialog = null
+var _format_names := []
+var _format_extensions := []
+var _logger = Logger.get_for(self)
 
 
 func _ready():
@@ -31,10 +33,12 @@ func _ready():
 	_format_names[FORMAT_RH] = "16-bit RAW float (native)"
 	_format_names[FORMAT_R16] = "16-bit RAW unsigned"
 	_format_names[FORMAT_PNG8] = "8-bit PNG"
+	_format_names[FORMAT_EXRH] = "16-bit float greyscale EXR (native)"
 	
 	_format_extensions[FORMAT_RH] = "raw"
 	_format_extensions[FORMAT_R16] = "raw"
 	_format_extensions[FORMAT_PNG8] = "png"
+	_format_extensions[FORMAT_EXRH] = "exr"
 	
 	if not Util.is_in_edited_scene(self):
 		for i in len(_format_names):
@@ -43,7 +47,7 @@ func _ready():
 
 func setup_dialogs(base_control):
 	assert(_file_dialog == null)
-	var fd = EditorFileDialog.new()
+	var fd := EditorFileDialog.new()
 	fd.mode = EditorFileDialog.MODE_SAVE_FILE
 	fd.resizable = true
 	fd.access = EditorFileDialog.ACCESS_FILESYSTEM
@@ -76,44 +80,55 @@ func _auto_adjust_height_range():
 	_height_range_max_spinbox.value = aabb.position.y + aabb.size.y
 
 
-func _export():
+func _export() -> bool:
 	assert(_terrain != null)
 	assert(_terrain.get_data() != null)
-	var heightmap = _terrain.get_data().get_image(HTerrainData.CHANNEL_HEIGHT)
-	var fpath = _output_path_line_edit.text.strip_edges()
+	var heightmap: Image = _terrain.get_data().get_image(HTerrainData.CHANNEL_HEIGHT)
+	var fpath := _output_path_line_edit.text.strip_edges()
 	
 	# TODO Is `selected` an ID or an index? I need an ID, it works by chance for now.
-	var format = _format_selector.selected
+	var format := _format_selector.selected
 	
-	var height_min = _height_range_min_spinbox.value
-	var height_max = _height_range_max_spinbox.value
+	var height_min := _height_range_min_spinbox.value
+	var height_max := _height_range_max_spinbox.value
 	
 	if height_min == height_max:
-		printerr("Cannot export, height range is zero")
+		_logger.error("Cannot export, height range is zero")
 		return false
 	
 	if height_min > height_max:
-		printerr("Cannot export, height min is greater than max")
+		_logger.error("Cannot export, height min is greater than max")
 		return false
+	
+	var save_error := OK
 	
 	if format == FORMAT_PNG8:
 		var hscale = 1.0 / (height_max - height_min)
 		var im = Image.new()
 		im.create(heightmap.get_width(), heightmap.get_height(), false, Image.FORMAT_R8)
+		
 		im.lock()
+		heightmap.lock()
+		
 		for y in heightmap.get_height():
 			for x in heightmap.get_width():
 				var h = clamp((heightmap.get_pixel(x, y).r - height_min) * hscale, 0.0, 1.0)
 				im.set_pixel(x, y, Color(h, h, h))
+		
 		im.unlock()
-		im.save_png(fpath)
+		heightmap.unlock()
+		
+		save_error = im.save_png(fpath)
+	
+	elif format == FORMAT_EXRH:
+		save_error = heightmap.save_exr(fpath, true)
 		
 	else:
 		var f = File.new()
 		var err = f.open(fpath, File.WRITE)
 		if err != OK:
 			_print_file_error(fpath, err)
-			return
+			return false
 		
 		if format == FORMAT_RH:
 			# Native format
@@ -130,14 +145,18 @@ func _export():
 					elif h > 65535:
 						h = 65535
 					if x % 50 == 0:
-						print(h)
+						_logger.debug(str(h))
 					f.store_16(h)
 			heightmap.unlock()
 	
 		f.close()
 	
-	print("Exported heightmap as \"", fpath, "\"")
-	return true
+	if save_error == OK:
+		_logger.debug("Exported heightmap as \"{0}\"".format([fpath]))
+		return true
+	else:
+		_print_file_error(fpath, save_error)
+		return false
 
 
 func _update_file_extension():
@@ -158,8 +177,9 @@ func _update_file_extension():
 		_output_path_line_edit.text = str(fpath.get_basename(), ".", ext)
 
 
-static func _print_file_error(fpath, err):
-	printerr("Could not open path \"", fpath, "\", error: ", Errors.get_message(err))
+func _print_file_error(fpath, err):
+	_logger.error("Could not save path {0}, error: {1}" \
+		.format([fpath, Errors.get_message(err)]))
 
 
 func _on_CancelButton_pressed():

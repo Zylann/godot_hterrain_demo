@@ -1,27 +1,57 @@
 tool
 extends WindowDialog
 
-
 const Util = preload("../../util/util.gd")
 const HTerrainData = preload("../../hterrain_data.gd")
 const Errors = preload("../../util/errors.gd")
+const Logger = preload("../../util/logger.gd")
 
 signal permanent_change_performed(message)
 
-onready var _inspector = get_node("VBoxContainer/Inspector")
-onready var _errors_label = get_node("VBoxContainer/ColorRect/ScrollContainer/VBoxContainer/Errors")
-onready var _warnings_label = get_node("VBoxContainer/ColorRect/ScrollContainer/VBoxContainer/Warnings")
+onready var _inspector = $VBoxContainer/Inspector
+onready var _errors_label = $VBoxContainer/ColorRect/ScrollContainer/VBoxContainer/Errors
+onready var _warnings_label = $VBoxContainer/ColorRect/ScrollContainer/VBoxContainer/Warnings
+
+const RAW_LITTLE_ENDIAN = 0
+const RAW_BIG_ENDIAN = 1
 
 var _terrain = null
+var _logger = Logger.get_for(self)
 
 
 func _ready():
 	_inspector.set_prototype({
-		"heightmap": { "type": TYPE_STRING, "usage": "file", "exts": ["raw", "png"] },
-		"min_height": { "type": TYPE_REAL, "range": {"min": -2000.0, "max": 2000.0, "step": 1.0}, "default_value": 0.0 },
-		"max_height": { "type": TYPE_REAL, "range": {"min": -2000.0, "max": 2000.0, "step": 1.0}, "default_value": 400.0 },
-		"splatmap": { "type": TYPE_STRING, "usage": "file", "exts": ["png"] },
-		"colormap": { "type": TYPE_STRING, "usage": "file", "exts": ["png"] }
+		"heightmap": {
+			"type": TYPE_STRING,
+			"usage": "file",
+			"exts": ["raw", "png", "exr"]
+		},
+		"raw_endianess": {
+			"type": TYPE_INT,
+			"usage": "enum",
+			"enum_items": ["Little Endian", "Big Endian"],
+			"enabled": false
+		},
+		"min_height": {
+			"type": TYPE_REAL,
+			"range": {"min": -2000.0, "max": 2000.0, "step": 1.0},
+			"default_value": 0.0
+		},
+		"max_height": {
+			"type": TYPE_REAL,
+			"range": {"min": -2000.0, "max": 2000.0, "step": 1.0},
+			"default_value": 400.0
+		},
+		"splatmap": {
+			"type": TYPE_STRING,
+			"usage": "file",
+			"exts": ["png"]
+		},
+		"colormap": {
+			"type": TYPE_STRING,
+			"usage": "file",
+			"exts": ["png"]
+		}
 	})
 	
 	# Testing
@@ -33,7 +63,7 @@ func set_terrain(terrain):
 	_terrain = terrain
 
 
-func _notification(what):
+func _notification(what: int):
 	if what == NOTIFICATION_VISIBILITY_CHANGED:
 		if visible and is_inside_tree():
 			_clear_feedback()
@@ -52,12 +82,11 @@ func _clear_feedback():
 
 
 func _show_feedback(res):
-
 	for e in res.errors:
-		printerr("ERROR: ", e)
+		_logger.error(e)
 
 	for w in res.warnings:
-		print("WARNING: ", w)
+		_logger.warn(w)
 	
 	_clear_feedback()
 	
@@ -81,32 +110,38 @@ func _on_ImportButton_pressed():
 	_show_feedback(res)
 
 	if len(res.errors) != 0:
-		print("Cannot import due to errors, aborting")
+		_logger.debug("Cannot import due to errors, aborting")
 		return
 
 	var params = {}
 
 	var heightmap_path = _inspector.get_value("heightmap")
 	if heightmap_path != "":
+		var endianess = _inspector.get_value("raw_endianess")
 		params[HTerrainData.CHANNEL_HEIGHT] = {
 			"path": heightmap_path,
 			"min_height": _inspector.get_value("min_height"),
 			"max_height": _inspector.get_value("max_height"),
+			"big_endian": endianess == RAW_BIG_ENDIAN
 		}
 
 	var colormap_path = _inspector.get_value("colormap")
 	if colormap_path != "":
-		params[HTerrainData.CHANNEL_COLOR] = colormap_path
+		params[HTerrainData.CHANNEL_COLOR] = {
+			"path": colormap_path
+		}
 
 	var splatmap_path = _inspector.get_value("splatmap")
 	if splatmap_path != "":
-		params[HTerrainData.CHANNEL_SPLAT] = splatmap_path
+		params[HTerrainData.CHANNEL_SPLAT] = {
+			"path": splatmap_path
+		}
 
 	var data = _terrain.get_data()
 	data._edit_import_maps(params)
 	emit_signal("permanent_change_performed", "Import maps")
 	
-	print("Terrain import finished")
+	_logger.debug("Terrain import finished")
 	hide()
 
 
@@ -114,12 +149,13 @@ func _on_CancelButton_pressed():
 	hide()
 
 
-func _on_Inspector_property_changed(key, value):
-	pass # replace with function body
+func _on_Inspector_property_changed(key: String, value):
+	if key == "heightmap":
+		var is_raw = value.get_extension().to_lower() == "raw"
+		_inspector.set_property_enabled("raw_endianess", is_raw)
 
 
 func _validate_form():
-
 	var res = {
 		"errors": [],
 		"warnings": []
@@ -147,7 +183,7 @@ func _validate_form():
 			# so we avoid loading other maps everytime to do further checks
 			return res
 
-		var size = _load_image_size(heightmap_path)
+		var size = _load_image_size(heightmap_path, _logger)
 		if size.has("error"):
 			res.errors.append(str("Cannot open heightmap file: ", _error_to_string(size.error)))
 			return res
@@ -162,58 +198,62 @@ func _validate_form():
 		heightmap_size = adjusted_size
 
 	if splatmap_path != "":
-		_check_map_size(splatmap_path, "splatmap", heightmap_size, res)
+		_check_map_size(splatmap_path, "splatmap", heightmap_size, res, _logger)
 
 	if colormap_path != "":
-		_check_map_size(colormap_path, "colormap", heightmap_size, res)
+		_check_map_size(colormap_path, "colormap", heightmap_size, res, _logger)
 
 	return res
 
 
-static func _check_map_size(path, map_name, heightmap_size, res):
-	var size = _load_image_size(path)
+static func _check_map_size(path, map_name, heightmap_size, res, logger):
+	var size = _load_image_size(path, logger)
 	if size.has("error"):
 		res.errors.append("Cannot open splatmap file: ", _error_to_string(size.error))
 		return
 	var adjusted_size = HTerrainData.get_adjusted_map_size(size.width, size.height)
 	if adjusted_size != heightmap_size:
-		res.errors.append(str("The ", map_name, " must have the same resolution as the heightmap (", heightmap_size, ")"))
+		res.errors.append(str(
+			"The ", map_name, 
+			" must have the same resolution as the heightmap (", heightmap_size, ")"))
 	else:
 		if adjusted_size != size.width:
 			res.warnings.append(
-				"The square resolution deduced from ", map_name, " file size is not power of two + 1.\n" + \
-				"The ", map_name, " will be cropped.")
+				"The square resolution deduced from ", map_name, 
+				" file size is not power of two + 1.\nThe ", 
+				map_name, " will be cropped.")
 
 
-static func _load_image_size(path):
+static func _load_image_size(path, logger):
 	var ext = path.get_extension().to_lower()
 
-	if ext == "png":
-
+	if ext == "png" or ext == "exr":
 		var im = Image.new()
 		var err = im.load(path)
 		if err != OK:
-			print("An error occurred loading image ", path, ", code ", err)
+			logger.error("An error occurred loading image '{0}', code {1}" \
+				.format([path, err]))
 			return { "error": err }
 
 		return { "width": im.get_width(), "height": im.get_height() }
 
 	elif ext == "raw":
-
 		var f = File.new()
 		var err = f.open(path, File.READ)
 		if err != OK:
-			print("Error opening file ", path)
+			logger.error("Error opening file {0}".format([path]))
 			return { "error": err }
 
-		# Assume the raw data is square in 16-bit format, so its size is function of file length
+		# Assume the raw data is square in 16-bit format,
+		# so its size is function of file length
 		var flen = f.get_len()
 		f.close()
 		var size = Util.integer_square_root(flen / 2)
 		if size == -1:
 			return { "error": "RAW image is not square" }
 		
-		print("Deduced RAW heightmap resolution: {0}*{1}, for a length of {2}".format([size, size, flen]))
+		logger.debug("Deduced RAW heightmap resolution: {0}*{1}, for a length of {2}" \
+			.format([size, size, flen]))
 
 		return { "width": size, "height": size }
 

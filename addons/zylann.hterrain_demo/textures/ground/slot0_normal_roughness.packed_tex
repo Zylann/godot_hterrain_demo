@@ -1,0 +1,8 @@
+{
+	"contains_albedo": false,
+	"resolution": 1024,
+	"src": {
+		"a": "res://addons/zylann.hterrain_demo/textures/ground/src/grass/grass_roughness.png",
+		"rgb": "res://addons/zylann.hterrain_demo/textures/ground/src/grass/grass_normal.png"
+	}
+}

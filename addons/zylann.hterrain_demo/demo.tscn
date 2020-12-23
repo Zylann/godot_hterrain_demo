@@ -1,86 +1,113 @@
-[gd_scene load_steps=19 format=2]
+[gd_scene load_steps=24 format=2]
 
-[ext_resource path="res://addons/zylann.hterrain_demo/terrain_data/data.hterrain" type="Resource" id=1]
-[ext_resource path="res://addons/zylann.hterrain/hterrain.gd" type="Script" id=2]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/table_mountain_2_4k.hdr" type="Texture" id=3]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground//sand_albedo_bump.png" type="Texture" id=4]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground//sand_normal_roughness.png" type="Texture" id=5]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground//grass_albedo_bump.png" type="Texture" id=6]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground//grass_normal_roughness.png" type="Texture" id=7]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground//rocks_albedo_bump.png" type="Texture" id=8]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground//rocks_normal_roughness.png" type="Texture" id=9]
-[ext_resource path="res://addons/zylann.hterrain/hterrain_detail_layer.gd" type="Script" id=10]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/grass/grass_billboard.png" type="Texture" id=11]
+[ext_resource path="res://addons/zylann.hterrain/hterrain.gd" type="Script" id=1]
+[ext_resource path="res://addons/zylann.hterrain_demo/terrain_data/data.hterrain" type="Resource" id=2]
+[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot1_normal_roughness.packed_tex" type="Texture" id=3]
+[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot3_normal_roughness.packed_tex" type="Texture" id=4]
+[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot2_normal_roughness.packed_tex" type="Texture" id=5]
+[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot3_albedo_bump.packed_tex" type="Texture" id=6]
+[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot2_albedo_bump.packed_tex" type="Texture" id=7]
+[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot0_normal_roughness.packed_tex" type="Texture" id=8]
+[ext_resource path="res://addons/zylann.hterrain/hterrain_detail_layer.gd" type="Script" id=9]
+[ext_resource path="res://addons/zylann.hterrain_demo/textures/grass/grass_billboard.png" type="Texture" id=10]
+[ext_resource path="res://addons/zylann.hterrain_demo/textures/table_mountain_2_4k.hdr" type="Texture" id=11]
 [ext_resource path="res://addons/zylann.hterrain_demo/avatar.gd" type="Script" id=12]
-[ext_resource path="res://addons/zylann.hterrain_demo/inventory.gd" type="Script" id=13]
-[ext_resource path="res://addons/zylann.hterrain_demo/mouse_look.gd" type="Script" id=14]
+[ext_resource path="res://addons/zylann.hterrain_demo/mouse_look.gd" type="Script" id=13]
+[ext_resource path="res://addons/zylann.hterrain_demo/inventory.gd" type="Script" id=14]
+[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot1_albedo_bump.packed_tex" type="Texture" id=15]
+[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot0_albedo_bump.packed_tex" type="Texture" id=16]
+[ext_resource path="res://addons/zylann.hterrain_demo/sea_material.tres" type="Material" id=17]
+[ext_resource path="res://addons/zylann.hterrain/hterrain_texture_set.gd" type="Script" id=18]
 
-[sub_resource type="PanoramaSky" id=1]
-panorama = ExtResource( 3 )
+[sub_resource type="Resource" id=1]
+script = ExtResource( 18 )
+mode = 0
+textures = [ [ ExtResource( 6 ), ExtResource( 16 ), ExtResource( 7 ), ExtResource( 15 ) ], [ ExtResource( 4 ), ExtResource( 8 ), ExtResource( 5 ), ExtResource( 3 ) ] ]
 
-[sub_resource type="Environment" id=2]
+[sub_resource type="PanoramaSky" id=2]
+panorama = ExtResource( 11 )
+
+[sub_resource type="Environment" id=3]
 background_mode = 2
-background_sky = SubResource( 1 )
+background_sky = SubResource( 2 )
+background_energy = 0.5
+ambient_light_sky_contribution = 0.5
 fog_enabled = true
 
-[sub_resource type="PlaneMesh" id=3]
+[sub_resource type="PlaneMesh" id=4]
 size = Vector2( 513, 513 )
 
-[sub_resource type="SpatialMaterial" id=4]
-flags_transparent = true
-albedo_color = Color( 0.301961, 0.407843, 0.45098, 0.752941 )
-metallic = 0.14
-roughness = 0.24
+[sub_resource type="PlaneMesh" id=5]
+size = Vector2( 2048, 2048 )
 
 [node name="TerrainDemo" type="Node"]
 
 [node name="HTerrain" type="Spatial" parent="."]
-script = ExtResource( 2 )
-collision_enabled = true
+script = ExtResource( 1 )
 ambient_wind = 0.1
-lod_scale = 2.0
-map_scale = Vector3( 1, 1, 1 )
-_terrain_data = ExtResource( 1 )
+_terrain_data = ExtResource( 2 )
 chunk_size = 32
+collision_enabled = true
+collision_layer = 1
+collision_mask = 1
 shader_type = "Classic4"
 custom_shader = null
-shader_params/u_ground_uv_scale = 20
+custom_globalmap_shader = null
+texture_set = SubResource( 1 )
+shader_params/u_ground_uv_scale_per_texture = Plane( 20, 20, 20, 20 )
 shader_params/u_depth_blending = true
 shader_params/u_triplanar = false
+shader_params/u_tile_reduction = Plane( 0, 0, 0, 0 )
 shader_params/u_globalmap_blend_start = null
 shader_params/u_globalmap_blend_distance = null
-ground/albedo_bump_0 = ExtResource( 4 )
-ground/normal_roughness_0 = ExtResource( 5 )
-ground/albedo_bump_1 = ExtResource( 6 )
-ground/normal_roughness_1 = ExtResource( 7 )
-ground/albedo_bump_2 = ExtResource( 8 )
-ground/normal_roughness_2 = ExtResource( 9 )
-ground/albedo_bump_3 = null
-ground/normal_roughness_3 = null
+shader_params/u_colormap_opacity_per_texture = Plane( 1, 1, 1, 1 )
 
 [node name="HTerrainDetailLayer" type="Spatial" parent="HTerrain"]
-script = ExtResource( 10 )
+script = ExtResource( 9 )
 layer_index = 0
-texture = ExtResource( 11 )
+texture = ExtResource( 10 )
 view_distance = 200.0
 custom_shader = null
 density = 6.0
-shader_params/u_terrain_normal_basis = Basis( 1, 0, 0, 0, 1, 0, 0, 0, 1 )
+instance_mesh = null
 shader_params/u_globalmap_tint_bottom = 1.0
 shader_params/u_globalmap_tint_top = 0.49
 shader_params/u_bottom_ao = 0.569
+shader_params/u_instance_scale = Vector3( 1, 1, 1 )
 
 [node name="DirectionalLight" type="DirectionalLight" parent="."]
-transform = Transform( 0.664735, 0.361564, -0.653758, 0, 0.875085, 0.48397, 0.747079, -0.321712, 0.581699, 0, 0, 0 )
-shadow_enabled = true
+transform = Transform( 0.652244, 0.320891, -0.686736, 0.00979666, 0.902329, 0.430936, 0.757946, -0.287803, 0.585395, 44.7451, 14.9375, 196.223 )
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
-environment = SubResource( 2 )
+environment = SubResource( 3 )
 
 [node name="Sea" type="MeshInstance" parent="."]
 transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 256, 0, 256 )
-mesh = SubResource( 3 )
-material/0 = SubResource( 4 )
+mesh = SubResource( 4 )
+material/0 = ExtResource( 17 )
+
+[node name="ExtendedSea" type="Spatial" parent="."]
+visible = false
+
+[node name="Sea2" type="MeshInstance" parent="ExtendedSea"]
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, -1024.5, 0, 1023.5 )
+mesh = SubResource( 5 )
+material/0 = ExtResource( 17 )
+
+[node name="Sea3" type="MeshInstance" parent="ExtendedSea"]
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 1023.5, 0, 1536.5 )
+mesh = SubResource( 5 )
+material/0 = ExtResource( 17 )
+
+[node name="Sea4" type="MeshInstance" parent="ExtendedSea"]
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 1536.5, 0, -511.5 )
+mesh = SubResource( 5 )
+material/0 = ExtResource( 17 )
+
+[node name="Sea5" type="MeshInstance" parent="ExtendedSea"]
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, -511.5, 0, -1024.5 )
+mesh = SubResource( 5 )
+material/0 = ExtResource( 17 )
 
 [node name="Avatar" type="Spatial" parent="."]
 transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 224.299, 25.6109, 267.331 )
@@ -88,7 +115,7 @@ script = ExtResource( 12 )
 
 [node name="Camera" type="Camera" parent="Avatar"]
 far = 500.0
-script = ExtResource( 14 )
+script = ExtResource( 13 )
 
 [node name="Inventory" type="Node" parent="Avatar"]
-script = ExtResource( 13 )
+script = ExtResource( 14 )

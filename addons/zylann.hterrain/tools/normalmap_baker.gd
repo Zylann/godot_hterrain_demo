@@ -1,8 +1,10 @@
-tool
-extends Node
 
 # Bakes normals asynchronously in the editor as the heightmap gets modified.
+# It uses the heightmap texture to change the normalmap image, which is then uploaded like an edit.
 # This is probably not a nice method GPU-wise, but it's way faster than GDScript.
+
+tool
+extends Node
 
 const HTerrainData = preload("../hterrain_data.gd")
 
@@ -20,6 +22,7 @@ var _terrain_data = null
 
 
 func _init():
+	assert(VIEWPORT_SIZE <= HTerrainData.MIN_RESOLUTION)
 	_viewport = Viewport.new()
 	_viewport.size = Vector2(VIEWPORT_SIZE + 2, VIEWPORT_SIZE + 2)
 	_viewport.render_target_update_mode = Viewport.UPDATE_DISABLED
@@ -88,9 +91,6 @@ func request_tiles_in_region(min_pos, size):
 	tmax.x = clamp(tmax.x, 0, ntx)
 	tmax.y = clamp(tmax.y, 0, nty)
 	
-#	print("min: ", min_pos, ", max: ", max_pos)
-#	print("tmin: ", tmin, ", tmax: ", tmax)
-	
 	for y in range(tmin.y, tmax.y):
 		for x in range(tmin.x, tmax.x):
 			request_tile(Vector2(x, y))
@@ -112,12 +112,11 @@ func _process(delta):
 		return
 	
 	if _processing_tile != null and _terrain_data != null:
-		#var time_before = OS.get_ticks_msec()
 		var src = _viewport.get_texture().get_data()
 		var dst = _terrain_data.get_image(HTerrainData.CHANNEL_NORMAL)
 		
 		src.convert(dst.get_format())
-		#src.save_png("test_normal.png")
+		#src.save_png(str("test_", _processing_tile.x, "_", _processing_tile.y, ".png"))
 		var pos = _processing_tile * VIEWPORT_SIZE
 		var w = src.get_width() - 1
 		var h = src.get_height() - 1
@@ -127,11 +126,12 @@ func _process(delta):
 		if _pending_tiles_grid[_processing_tile] == STATE_PROCESSING:
 			_pending_tiles_grid.erase(_processing_tile)
 		_processing_tile = null
-		#print("Spent ", OS.get_ticks_msec() - time_before, " ms downloading viewport")
 
 	if _has_pending_tiles():
 		var tpos = _pending_tiles_queue[-1]
 		_pending_tiles_queue.pop_back()
+		# The sprite will be much larger than the viewport due to the size of the heightmap.
+		# We move it around so the part inside the viewport will correspond to the tile.
 		_ci.position = -VIEWPORT_SIZE * tpos + Vector2(1, 1)
 		_viewport.render_target_update_mode = Viewport.UPDATE_ONCE
 		_processing_tile = tpos
