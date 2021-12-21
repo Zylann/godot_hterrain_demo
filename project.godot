@@ -32,7 +32,7 @@ config/icon="res://icon.png"
 
 [editor_plugins]
 
-enabled=PoolStringArray( "zylann.hterrain" )
+enabled=PoolStringArray( "res://addons/zylann.hterrain/plugin.cfg" )
 
 [rendering]
 

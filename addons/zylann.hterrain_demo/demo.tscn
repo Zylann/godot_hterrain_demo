@@ -1,28 +1,20 @@
-[gd_scene load_steps=24 format=2]
+[gd_scene load_steps=16 format=2]
 
 [ext_resource path="res://addons/zylann.hterrain/hterrain.gd" type="Script" id=1]
 [ext_resource path="res://addons/zylann.hterrain_demo/terrain_data/data.hterrain" type="Resource" id=2]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot1_normal_roughness.packed_tex" type="Texture" id=3]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot3_normal_roughness.packed_tex" type="Texture" id=4]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot2_normal_roughness.packed_tex" type="Texture" id=5]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot3_albedo_bump.packed_tex" type="Texture" id=6]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot2_albedo_bump.packed_tex" type="Texture" id=7]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot0_normal_roughness.packed_tex" type="Texture" id=8]
 [ext_resource path="res://addons/zylann.hterrain/hterrain_detail_layer.gd" type="Script" id=9]
 [ext_resource path="res://addons/zylann.hterrain_demo/textures/grass/grass_billboard.png" type="Texture" id=10]
 [ext_resource path="res://addons/zylann.hterrain_demo/textures/table_mountain_2_4k.hdr" type="Texture" id=11]
 [ext_resource path="res://addons/zylann.hterrain_demo/avatar.gd" type="Script" id=12]
 [ext_resource path="res://addons/zylann.hterrain_demo/mouse_look.gd" type="Script" id=13]
 [ext_resource path="res://addons/zylann.hterrain_demo/inventory.gd" type="Script" id=14]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot1_albedo_bump.packed_tex" type="Texture" id=15]
-[ext_resource path="res://addons/zylann.hterrain_demo/textures/ground/slot0_albedo_bump.packed_tex" type="Texture" id=16]
 [ext_resource path="res://addons/zylann.hterrain_demo/sea_material.tres" type="Material" id=17]
 [ext_resource path="res://addons/zylann.hterrain/hterrain_texture_set.gd" type="Script" id=18]
 
 [sub_resource type="Resource" id=1]
 script = ExtResource( 18 )
 mode = 0
-textures = [ [ ExtResource( 6 ), ExtResource( 16 ), ExtResource( 7 ), ExtResource( 15 ) ], [ ExtResource( 4 ), ExtResource( 8 ), ExtResource( 5 ), ExtResource( 3 ) ] ]
+textures = [ [ null, null, null, null ], [ null, null, null, null ] ]
 
 [sub_resource type="PanoramaSky" id=2]
 panorama = ExtResource( 11 )
@@ -54,6 +46,7 @@ shader_type = "Classic4"
 custom_shader = null
 custom_globalmap_shader = null
 texture_set = SubResource( 1 )
+render_layers = 1
 shader_params/u_ground_uv_scale_per_texture = Plane( 20, 20, 20, 20 )
 shader_params/u_depth_blending = true
 shader_params/u_triplanar = false
@@ -64,12 +57,9 @@ shader_params/u_colormap_opacity_per_texture = Plane( 1, 1, 1, 1 )
 
 [node name="HTerrainDetailLayer" type="Spatial" parent="HTerrain"]
 script = ExtResource( 9 )
-layer_index = 0
 texture = ExtResource( 10 )
 view_distance = 200.0
-custom_shader = null
 density = 6.0
-instance_mesh = null
 shader_params/u_globalmap_tint_bottom = 1.0
 shader_params/u_globalmap_tint_top = 0.49
 shader_params/u_bottom_ao = 0.569
@@ -87,7 +77,6 @@ mesh = SubResource( 4 )
 material/0 = ExtResource( 17 )
 
 [node name="ExtendedSea" type="Spatial" parent="."]
-visible = false
 
 [node name="Sea2" type="MeshInstance" parent="ExtendedSea"]
 transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, -1024.5, 0, 1023.5 )

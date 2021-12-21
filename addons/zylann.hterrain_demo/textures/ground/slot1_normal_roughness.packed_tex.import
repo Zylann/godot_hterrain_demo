@@ -16,3 +16,4 @@ compress/mode=2
 flags/repeat=1
 flags/filter=true
 flags/mipmaps=true
+flags/anisotropic=false
