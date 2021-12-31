@@ -156,6 +156,8 @@ var _shader_uses_texture_array := false
 var _material := ShaderMaterial.new()
 var _material_params_need_update := false
 
+var _render_layer_mask := 1
+
 # Actual number of textures supported by the shader currently selected
 var _ground_texture_count_cache = 0
 
@@ -277,7 +279,7 @@ func _get_property_list():
 			"hint": PROPERTY_HINT_LAYERS_3D_PHYSICS
 		},
 		{
-			"name": "Shader",
+			"name": "Rendering",
 			"type": TYPE_NIL,
 			"usage": PROPERTY_USAGE_GROUP
 		},
@@ -312,6 +314,12 @@ func _get_property_list():
 			# This triggers `ERROR: Cannot get class 'HTerrainTextureSet'`
 			# See https://github.com/godotengine/godot/pull/41264
 			#"hint_string": "HTerrainTextureSet"
+		},
+		{
+			"name": "render_layers",
+			"type": TYPE_INT,
+			"usage": PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE,
+			"hint": PROPERTY_HINT_LAYERS_3D_RENDER
 		}
 	]
 
@@ -368,6 +376,9 @@ func _get(key: String):
 
 	elif key == "collision_mask":
 		return _collision_mask
+
+	elif key == "render_layers":
+		return get_render_layer_mask()
 	
 
 func _set(key: String, value):
@@ -424,6 +435,9 @@ func _set(key: String, value):
 		if _collider != null:
 			_collider.set_collision_mask(value)
 
+	elif key == "render_layers":
+		return set_render_layer_mask(value)
+
 
 func get_texture_set() -> HTerrainTextureSet:
 	return _texture_set
@@ -458,6 +472,15 @@ func set_shader_param(param_name: String, v):
 	_material.set_shader_param(param_name, v)
 
 
+func set_render_layer_mask(mask: int):
+	_render_layer_mask = mask
+	_for_all_chunks(SetRenderLayerMaskAction.new(mask))
+
+
+func get_render_layer_mask() -> int:
+	return _render_layer_mask
+
+
 func _set_data_directory(dirpath: String):
 	if dirpath != _get_data_directory():
 		if dirpath == "":
@@ -473,7 +496,7 @@ func _set_data_directory(dirpath: String):
 				# Create new
 				var d := HTerrainData.new()
 				d.resource_path = fpath
-				set_data(d)		
+				set_data(d)
 	else:
 		_logger.warn("Setting twice the same terrain directory??")
 
@@ -1087,7 +1110,6 @@ func _process(delta: float):
 	if not Engine.is_editor_hint():
 		# In editor, the camera is only accessible from an editor plugin
 		_update_viewer_position(null)
-	var viewer_pos := _viewer_pos_world
 
 	if has_data():
 		if _data.is_locked():
@@ -1096,9 +1118,10 @@ func _process(delta: float):
 
 		if _data.get_resolution() != 0:
 			var gt := get_internal_transform()
-			var local_viewer_pos := gt.affine_inverse() * viewer_pos
+			# Viewer position such that 1 unit == 1 pixel in the heightmap
+			var viewer_pos_heightmap_local := gt.affine_inverse() * _viewer_pos_world
 			#var time_before = OS.get_ticks_msec()
-			_lodder.update(local_viewer_pos)
+			_lodder.update(viewer_pos_heightmap_local)
 			#var time_elapsed = OS.get_ticks_msec() - time_before
 			#if Engine.get_frames_drawn() % 60 == 0:
 			#	_logger.debug(str("Lodder time: ", time_elapsed))
@@ -1107,7 +1130,7 @@ func _process(delta: float):
 			# Note: the detail system is not affected by map scale,
 			# so we have to send viewer position in world space
 			for layer in _detail_layers:
-				layer.process(delta, viewer_pos)
+				layer.process(delta, _viewer_pos_world)
 
 	_updated_chunks = 0
 
@@ -1275,6 +1298,8 @@ func _cb_make_chunk(cpos_x: int, cpos_y: int, lod: int):
 		else:
 			chunk = HTerrainChunk.new(self, origin_in_cells_x, origin_in_cells_y, material)
 		chunk.parent_transform_changed(get_internal_transform())
+
+		chunk.set_render_layer_mask(_render_layer_mask)
 
 		var grid = _chunks[lod]
 		var row = grid[cpos_y]
@@ -1545,4 +1570,11 @@ class SetMaterialAction:
 	func exec(chunk):
 		chunk.set_material(material)
 
+
+class SetRenderLayerMaskAction:
+	var mask: int = 0
+	func _init(m: int):
+		mask = m
+	func exec(chunk):
+		chunk.set_render_layer_mask(mask)
 
